@@ -78,6 +78,7 @@ export function LiveStreamsScreen() {
           onLoadStart={() => setLoading(true)}
           onLoadEnd={() => setLoading(false)}
           allowsFullscreenVideo
+          allowsInlineMediaPlayback={true}
           mediaPlaybackRequiresUserAction={false}
           javaScriptEnabled
         />

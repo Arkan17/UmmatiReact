@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { BookOpen, Smile, Award, CheckCircle, XCircle, ArrowLeft, ArrowRight } from 'lucide-react-native';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { Theme } from '../../../core/theme/theme';
 import { supabase } from '../../../core/config/SupabaseClient';
 import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
+import { useNavigation } from '@react-navigation/native';
 
 export function KidsSectionScreen() {
   const { user } = useAuth();
   const { content } = useDynamicContent();
+  const navigation = useNavigation();
   
   const kidsData = content.kids || { stories: [], wudu_steps: [], salah_steps: [], words: [], quiz_questions: [] };
   const stories = kidsData.stories || [];
@@ -101,7 +103,13 @@ export function KidsSectionScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Kids Islamic Corner</Text>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
+            <ArrowLeft color={Theme.colors.text} size={24} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Kids Islamic Corner</Text>
+          <View style={styles.placeholderWidth} />
+        </View>
         <Text style={styles.subtitle}>Learn and earn XP through games and stories!</Text>
       </View>
 
@@ -340,15 +348,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 16,
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backBtn: {
+    padding: 8,
+  },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     color: Theme.colors.text,
+    textAlign: 'center',
+  },
+  placeholderWidth: {
+    width: 40,
   },
   subtitle: {
     fontSize: 14,
     color: Theme.colors.textSecondary,
-    marginTop: 4,
+    textAlign: 'center',
+    marginTop: 6,
   },
   tabsRow: {
     flexDirection: 'row',

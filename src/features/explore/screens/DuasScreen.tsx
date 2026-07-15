@@ -12,7 +12,6 @@ export function DuasScreen() {
   const [duas, setDuas] = useState<any[]>(content.duas || []);
   const [activeCategory, setActiveCategory] = useState('All');
   const [playingId, setPlayingId] = useState<number | null>(null);
-  const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
 
   // Sync with cached/local fallback data initially
@@ -67,24 +66,22 @@ export function DuasScreen() {
       webViewRef.current?.injectJavaScript(script);
       setPlayingId(null);
     } else {
-      setActiveAudioUrl(url);
       setPlayingId(id);
-      
-      setTimeout(() => {
-        const script = `
-          const player = document.getElementById("dua-audio");
+      const script = `
+        const player = document.getElementById("dua-audio");
+        if (player.src !== "${url}") {
           player.src = "${url}";
-          player.play();
-        `;
-        webViewRef.current?.injectJavaScript(script);
-      }, 300);
+        }
+        player.play();
+      `;
+      webViewRef.current?.injectJavaScript(script);
     }
   };
 
   const htmlAudio = `
     <html>
       <body>
-        <audio id="dua-audio" src="${activeAudioUrl}"></audio>
+        <audio id="dua-audio"></audio>
         <script>
           const player = document.getElementById("dua-audio");
           player.onended = () => {
@@ -120,6 +117,8 @@ export function DuasScreen() {
             }
           }}
           javaScriptEnabled
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
         />
       </View>
 

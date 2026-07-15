@@ -2,9 +2,6 @@ import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, ScrollView, TouchableOpacity, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useAuth } from '../../../core/hooks/useAuth';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../../core/navigation/RootNavigator';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -39,11 +36,8 @@ const slides = [
   }
 ];
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
-
 export function OnboardingScreen() {
   const { completeOnboarding, register } = useAuth();
-  const navigation = useNavigation<NavigationProp>();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -132,7 +126,7 @@ export function OnboardingScreen() {
               ) : (
                 <View style={styles.descContainer}>
                   <View style={styles.descIconCircle}>
-                    <Text style={{ fontSize: 36 }}>{slide.icon}</Text>
+                    <Text style={styles.descIconText}>{slide.icon}</Text>
                   </View>
                   <Text style={styles.descText}>{slide.description}</Text>
                 </View>
@@ -342,15 +336,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   descIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: '#E6F4EA',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
     borderColor: '#C2E7D9',
     borderWidth: 1,
+  },
+  descIconText: {
+    fontSize: 36,
   },
   descText: {
     fontSize: 15,

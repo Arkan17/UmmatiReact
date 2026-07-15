@@ -112,7 +112,6 @@ export function NamesOfAllahScreen() {
   const navigation = useNavigation();
   const [namesOfAllah, setNamesOfAllah] = useState(NAMES);
   const [playingId, setPlayingId] = useState<number | null>(null);
-  const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
 
@@ -158,17 +157,15 @@ export function NamesOfAllahScreen() {
       webViewRef.current?.injectJavaScript(script);
       setPlayingId(null);
     } else {
-      setActiveAudioUrl(url);
       setPlayingId(id);
-      
-      setTimeout(() => {
-        const script = `
-          const player = document.getElementById("name-audio");
+      const script = `
+        const player = document.getElementById("name-audio");
+        if (player.src !== "${url}") {
           player.src = "${url}";
-          player.play();
-        `;
-        webViewRef.current?.injectJavaScript(script);
-      }, 300);
+        }
+        player.play();
+      `;
+      webViewRef.current?.injectJavaScript(script);
     }
   };
 
@@ -179,7 +176,7 @@ export function NamesOfAllahScreen() {
   const htmlAudio = `
     <html>
       <body>
-        <audio id="name-audio" src="${activeAudioUrl}"></audio>
+        <audio id="name-audio"></audio>
         <script>
           const player = document.getElementById("name-audio");
           player.onended = () => {
@@ -234,6 +231,8 @@ export function NamesOfAllahScreen() {
             }
           }}
           javaScriptEnabled
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
         />
       </View>
 

@@ -10,7 +10,6 @@ export function KalimasScreen() {
   const navigation = useNavigation();
   const { content } = useDynamicContent();
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
-  const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
 
   const kalimas = content.kalimas || [];
@@ -23,25 +22,22 @@ export function KalimasScreen() {
       setPlayingIndex(null);
     } else {
       // Play new
-      setActiveAudioUrl(url);
       setPlayingIndex(index);
-      
-      // Delay slightly for HTML source update if changed
-      setTimeout(() => {
-        const script = `
-          const player = document.getElementById("kalima-audio");
+      const script = `
+        const player = document.getElementById("kalima-audio");
+        if (player.src !== "${url}") {
           player.src = "${url}";
-          player.play();
-        `;
-        webViewRef.current?.injectJavaScript(script);
-      }, 300);
+        }
+        player.play();
+      `;
+      webViewRef.current?.injectJavaScript(script);
     }
   };
 
   const htmlAudio = `
     <html>
       <body>
-        <audio id="kalima-audio" src="${activeAudioUrl}"></audio>
+        <audio id="kalima-audio"></audio>
         <script>
           const player = document.getElementById("kalima-audio");
           player.onended = () => {
@@ -74,6 +70,8 @@ export function KalimasScreen() {
             }
           }}
           javaScriptEnabled
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
         />
       </View>
 

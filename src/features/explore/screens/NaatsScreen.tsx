@@ -118,7 +118,7 @@ export function NaatsScreen() {
     }
 
     const playActiveTrack = async () => {
-      if (!activeTrack.id) return;
+      if (!activeTrack.id && activeTrack.id !== 0) return;
       
       let playUrl = activeTrack.url;
       if (!playUrl) {
@@ -142,15 +142,17 @@ export function NaatsScreen() {
         }
       }
 
-      // Play
-      setTimeout(() => {
-        const script = `
-          const player = document.getElementById("naat-player");
-          player.src = "${playUrl}";
-          player.play();
-        `;
-        webViewRef.current?.injectJavaScript(script);
-      }, 400);
+      // Play instantly without delay
+      const script = `
+        const player = document.getElementById("naat-player");
+        player.pause();
+        player.src = "${playUrl}";
+        player.load();
+        player.play().catch(function(err) {
+          console.error("Playback failed:", err);
+        });
+      `;
+      webViewRef.current?.injectJavaScript(script);
     };
 
     playActiveTrack();
@@ -163,7 +165,7 @@ export function NaatsScreen() {
   const htmlAudio = `
     <html>
       <body>
-        <audio id="naat-player" src="${activeTrack?.url || ''}"></audio>
+        <audio id="naat-player"></audio>
         <script>
           const player = document.getElementById("naat-player");
           player.onended = () => {
@@ -210,6 +212,8 @@ export function NaatsScreen() {
             }
           }}
           javaScriptEnabled
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
         />
       </View>
 

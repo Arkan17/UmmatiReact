@@ -37,7 +37,7 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   MainApp: undefined;
-  QuranReading: { surahNumber: number; surahName: string; translationName: string };
+  QuranReading: { surahNumber?: number; surahName?: string; translationName?: string; juzNumber?: number; juzName?: string };
   Qibla: undefined;
   Tasbih: undefined;
   Mosque: undefined;
@@ -47,6 +47,7 @@ export type RootStackParamList = {
   LiveStreams: undefined;
   Naats: undefined;
   Calendar: undefined;
+  KidsSection: undefined;
 };
 
 export type TabParamList = {
@@ -236,13 +237,13 @@ export default function RootNavigator() {
             {/* Login and Register screens are bypassed/commented out */}
             {/* <Stack.Screen name="Login" component={LoginScreen} /> */}
             {/* <Stack.Screen name="Register" component={RegisterScreen} /> */}
-            
+
             <Stack.Screen name="MainApp" component={BottomTabNavigator} />
             <Stack.Screen name="QuranReading" component={QuranReadingScreen} />
             <Stack.Screen name="Qibla" component={QiblaScreen} />
             <Stack.Screen name="Tasbih" component={TasbihScreen} />
             <Stack.Screen name="Mosque" component={MosqueScreen} />
-            
+
             {/* Explore Sub-Screens */}
             <Stack.Screen name="Kalimas" component={KalimasScreen} />
             <Stack.Screen name="NamesOfAllah" component={NamesOfAllahScreen} />
@@ -250,6 +251,7 @@ export default function RootNavigator() {
             <Stack.Screen name="LiveStreams" component={LiveStreamsScreen} />
             <Stack.Screen name="Naats" component={NaatsScreen} />
             <Stack.Screen name="Calendar" component={CalendarScreen} />
+            <Stack.Screen name="KidsSection" component={KidsSectionScreen} />
           </>
         )}
       </Stack.Navigator>
