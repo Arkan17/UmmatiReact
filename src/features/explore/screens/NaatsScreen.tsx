@@ -12,13 +12,64 @@ export function NaatsScreen() {
   const navigation = useNavigation();
   const { content } = useDynamicContent();
   
+  const [naats, setNaats] = useState<any[]>(content.naats || []);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const webViewRef = useRef<WebView<{}>>(null);
   
-  const naats = content.naats || [];
   const activeTrack = naats[currentTrackIndex] || { title: 'Naat', artist: '', url: '' };
+
+  // Sync with local/cached data initially
+  useEffect(() => {
+    if (content.naats && content.naats.length > 0 && naats.length === 0) {
+      setNaats(content.naats);
+    }
+  }, [content]);
+
+  // Fetch live, popular Naats/Nasheeds from Archive.org Search API
+  useEffect(() => {
+    const fetchLiveNaats = async () => {
+      try {
+        const searchUrl = 'https://archive.org/advancedsearch.php?q=title%3A(Naat%20OR%20Nasheed)+AND+format%3A(VBR%20MP3%20OR%20MP3)+AND+mediatype%3A(audio)&fl%5B%5D=identifier,title,creator,downloads&sort%5B%5D=downloads+desc&rows=30&output=json';
+        const res = await fetch(searchUrl);
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.response && json.response.docs) {
+            const docs = json.response.docs;
+            const mapped = docs.map((doc: any) => ({
+              id: doc.identifier,
+              title: doc.title,
+              artist: doc.creator || 'Islamic Artist',
+              url: '', // resolve dynamically when played
+            }));
+            setNaats(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch live Naats from Archive.org:', e);
+      }
+    };
+    fetchLiveNaats();
+  }, []);
+
+  // Fetch specific MP3 filename from Archive.org metadata
+  const fetchTrackAudioUrl = async (identifier: string): Promise<string | null> => {
+    try {
+      const res = await fetch(`https://archive.org/metadata/${identifier}`);
+      if (res.ok) {
+        const json = await res.json();
+        const files = json.files || [];
+        const mp3File = files.find((f: any) => f.name.endsWith('.mp3'));
+        if (mp3File) {
+          return `https://archive.org/download/${identifier}/${encodeURIComponent(mp3File.name)}`;
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching Archive.org item metadata:', e);
+    }
+    return null;
+  };
   
   const injectPlayerCmd = (cmd: string) => {
     webViewRef.current?.injectJavaScript(`document.getElementById("naat-player").${cmd}();`);
@@ -29,7 +80,9 @@ export function NaatsScreen() {
       injectPlayerCmd('pause');
       setIsPlaying(false);
     } else {
-      injectPlayerCmd('play');
+      if (activeTrack.url) {
+        injectPlayerCmd('play');
+      }
       setIsPlaying(true);
     }
   };
@@ -56,19 +109,56 @@ export function NaatsScreen() {
     setIsPlaying(true);
   };
   
-  // Trigger HTML play script when track index changes
+  // Trigger HTML play script when track index changes or play state changes
   useEffect(() => {
-    if (isPlaying && activeTrack.url) {
+    let active = true;
+    if (!isPlaying) {
+      injectPlayerCmd('pause');
+      return;
+    }
+
+    const playActiveTrack = async () => {
+      if (!activeTrack.id) return;
+      
+      let playUrl = activeTrack.url;
+      if (!playUrl) {
+        setBuffering(true);
+        const resolved = await fetchTrackAudioUrl(activeTrack.id);
+        if (!active) return;
+        if (resolved) {
+          playUrl = resolved;
+          // Cache it in state so we don't have to fetch it again
+          setNaats(prev => {
+            const updated = [...prev];
+            if (updated[currentTrackIndex]) {
+              updated[currentTrackIndex] = { ...updated[currentTrackIndex], url: resolved };
+            }
+            return updated;
+          });
+        } else {
+          setBuffering(false);
+          setIsPlaying(false);
+          return;
+        }
+      }
+
+      // Play
       setTimeout(() => {
         const script = `
           const player = document.getElementById("naat-player");
-          player.src = "${activeTrack.url}";
+          player.src = "${playUrl}";
           player.play();
         `;
         webViewRef.current?.injectJavaScript(script);
       }, 400);
-    }
-  }, [currentTrackIndex, activeTrack?.url, isPlaying]);
+    };
+
+    playActiveTrack();
+
+    return () => {
+      active = false;
+    };
+  }, [currentTrackIndex, isPlaying, activeTrack.id, activeTrack.url]);
 
   const htmlAudio = `
     <html>

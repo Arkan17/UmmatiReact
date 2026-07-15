@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft, Volume2 } from 'lucide-react-native';
@@ -9,17 +9,57 @@ import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 export function DuasScreen() {
   const navigation = useNavigation();
   const { content } = useDynamicContent();
+  const [duas, setDuas] = useState<any[]>(content.duas || []);
   const [activeCategory, setActiveCategory] = useState('All');
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
 
-  const rawDuas = content.duas || [];
-  const categories = ['All', ...new Set(rawDuas.map(d => d.category))];
+  // Sync with cached/local fallback data initially
+  useEffect(() => {
+    if (content.duas && content.duas.length > 0 && duas.length === 0) {
+      setDuas(content.duas);
+    }
+  }, [content]);
+
+  // Fetch live duas from Naikiyah API
+  useEffect(() => {
+    const fetchLiveDuas = async () => {
+      try {
+        const res = await fetch('https://dua-data-api.vercel.app/api/usefulDuas');
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.length > 0) {
+            const mapped = json.map((item: any) => {
+              const categoryPretty = item.category
+                ? item.category.charAt(0).toUpperCase() + item.category.slice(1)
+                : 'General';
+
+              return {
+                id: item.id,
+                category: categoryPretty,
+                title: item.title || 'Dua',
+                arabic: item.dua || '',
+                transliteration: item.transliteration || '',
+                translation: item.description || '',
+                audio: item.audio || null,
+              };
+            });
+            setDuas(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch live duas from Naikiyah API:', e);
+      }
+    };
+    fetchLiveDuas();
+  }, []);
+
+  const categories = ['All', ...new Set(duas.map(d => d.category))];
 
   const filteredDuas = activeCategory === 'All' 
-    ? rawDuas 
-    : rawDuas.filter(d => d.category === activeCategory);
+    ? duas 
+    : duas.filter(d => d.category === activeCategory);
 
   const handlePlayAudio = (id: number, url: string) => {
     if (playingId === id) {
@@ -119,15 +159,17 @@ export function DuasScreen() {
                   <Text style={styles.cardCategory}>{item.category}</Text>
                   <Text style={styles.cardTitleText}>{item.title}</Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.audioBtn, isPlaying ? styles.audioBtnPlaying : null]}
-                  onPress={() => handlePlayAudio(item.id, item.audio)}
-                >
-                  <Volume2 color={isPlaying ? Theme.colors.white : Theme.colors.primary} size={16} />
-                  <Text style={[styles.audioBtnText, isPlaying ? styles.audioBtnTextPlaying : null]}>
-                    {isPlaying ? 'Playing' : 'Listen'}
-                  </Text>
-                </TouchableOpacity>
+                {item.audio ? (
+                  <TouchableOpacity
+                    style={[styles.audioBtn, isPlaying ? styles.audioBtnPlaying : null]}
+                    onPress={() => handlePlayAudio(item.id, item.audio)}
+                  >
+                    <Volume2 color={isPlaying ? Theme.colors.white : Theme.colors.primary} size={16} />
+                    <Text style={[styles.audioBtnText, isPlaying ? styles.audioBtnTextPlaying : null]}>
+                      {isPlaying ? 'Playing' : 'Listen'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               <Text style={styles.arabic}>{item.arabic}</Text>
