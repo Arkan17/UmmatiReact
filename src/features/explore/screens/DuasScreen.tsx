@@ -4,76 +4,22 @@ import { WebView } from 'react-native-webview';
 import { ArrowLeft, Volume2 } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
-
-const CATEGORIES = ['All', 'Morning/Evening', 'Daily Life', 'Travel', 'Protection'];
-
-const DUAS = [
-  {
-    id: 1,
-    category: 'Morning/Evening',
-    title: 'Dua upon waking up',
-    arabic: 'الْحَمْدُ لِلَّهِ الَّذِي أَحْيَانَا بَعْدَ مَا أَمَاتَنَا وَإِلَيْهِ النُّشُورُ',
-    transliteration: 'Alhamdu lillahil-lazee ahyana ba\'da ma amatana wa-ilaihin-nushoor',
-    translation: 'Praise is to Allah Who gave us life after He had caused us to die, and to Him is the resurrection.',
-    audio: 'http://www.duas.com/sounds/58.mp3',
-  },
-  {
-    id: 2,
-    category: 'Morning/Evening',
-    title: 'Dua before sleeping',
-    arabic: 'بِاسْمِكَ اللَّهُمَّ أَمُوتُ وَأَحْيَا',
-    transliteration: 'Bismika Allahumma amootu wa-ahya',
-    translation: 'In Your name, O Allah, I die and I live.',
-    audio: 'http://www.duas.com/sounds/57.mp3',
-  },
-  {
-    id: 3,
-    category: 'Daily Life',
-    title: 'Dua before eating',
-    arabic: 'بِسْمِ اللَّهِ وَعَلَى بَرَكَةِ اللَّهِ',
-    transliteration: 'Bismillahi wa \'ala barakatillah',
-    translation: 'In the name of Allah and with the blessings of Allah.',
-    audio: 'http://www.duas.com/sounds/48.mp3',
-  },
-  {
-    id: 4,
-    category: 'Daily Life',
-    title: 'Dua after finishing meal',
-    arabic: 'الْحَمْدُ لِلَّهِ الَّذِي أَطْعَمَنَا وَسَقَانَا وَجَعَلَنَا مُسْلِمِينَ',
-    transliteration: 'Alhamdu lillahil-lazee at\'amana wa-saqana wa-ja\'alana muslimeen',
-    translation: 'Praise is to Allah Who has fed us and given us drink and made us Muslims.',
-    audio: 'http://www.duas.com/sounds/50.mp3',
-  },
-  {
-    id: 5,
-    category: 'Travel',
-    title: 'Dua for traveling',
-    arabic: 'سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَٰذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَىٰ رَبِّنَا لَمُنْقَلِبُونَ',
-    transliteration: 'Subhanal-lazee sakhkhara lana haza wama kunna lahu muqrineen, wa-inna ila rabbina lamunqaliboon',
-    translation: 'Glory is to Him Who has subjected this to us, and we were not able to control it, and indeed to our Lord we will return.',
-    audio: 'http://www.duas.com/sounds/104.mp3',
-  },
-  {
-    id: 6,
-    category: 'Protection',
-    title: 'Dua for protection from harm',
-    arabic: 'بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ',
-    transliteration: 'Bismillahil-lazee la yadurru ma\'as-mihi shai\'un fil-ardi wala fis-samai wa-huwas-samee\'ul-aleem',
-    translation: 'In the name of Allah, with Whose name nothing can cause harm in the earth nor in the heaven, and He is the All-Hearing, the All-Knowing.',
-    audio: 'http://www.duas.com/sounds/306.mp3',
-  },
-];
+import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 export function DuasScreen() {
   const navigation = useNavigation();
+  const { content } = useDynamicContent();
   const [activeCategory, setActiveCategory] = useState('All');
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
 
+  const rawDuas = content.duas || [];
+  const categories = ['All', ...new Set(rawDuas.map(d => d.category))];
+
   const filteredDuas = activeCategory === 'All' 
-    ? DUAS 
-    : DUAS.filter(d => d.category === activeCategory);
+    ? rawDuas 
+    : rawDuas.filter(d => d.category === activeCategory);
 
   const handlePlayAudio = (id: number, url: string) => {
     if (playingId === id) {
@@ -140,7 +86,7 @@ export function DuasScreen() {
       {/* Category Slider */}
       <View style={styles.catContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
-          {CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <TouchableOpacity
               key={cat}
               style={[

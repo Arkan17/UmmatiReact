@@ -71,7 +71,7 @@ export function OnboardingScreen() {
       const randomId = Math.floor(100000 + Math.random() * 900000);
       const guestUsername = `guest_${randomId}`;
       const guestPassword = `Pass_${randomId}_Secure`;
-      
+
       await register(guestUsername, guestPassword);
     } catch (e) {
       console.warn('Background guest registration failed:', e);
@@ -86,7 +86,7 @@ export function OnboardingScreen() {
         <View style={styles.moonGraphic}>
           <Text style={styles.moonEmoji}>🌙</Text>
         </View>
-        
+
         {/* Styled Mosque vector construction */}
         <View style={styles.mosqueContainer}>
           <View style={styles.minaretLeft} />
@@ -98,7 +98,7 @@ export function OnboardingScreen() {
           </View>
           <View style={styles.minaretRight} />
         </View>
-        
+
         <Text style={styles.brandTitle}>UMMATI</Text>
         <Text style={styles.brandSubtitle}>Your Daily Companion{"\n"}For Deen & Duniya</Text>
       </View>
@@ -117,7 +117,7 @@ export function OnboardingScreen() {
           {slides.map((slide, index) => (
             <View key={index} style={styles.slide}>
               <Text style={styles.slideTitle}>{slide.title}</Text>
-              
+
               {slide.type === 'bullets' ? (
                 <View style={styles.bulletsContainer}>
                   {slide.bullets?.map((bullet, bIdx) => (

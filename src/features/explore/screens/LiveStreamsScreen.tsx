@@ -1,22 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft, Tv } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
+import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 type StreamType = 'makkah' | 'madina';
 
 export function LiveStreamsScreen() {
   const navigation = useNavigation();
+  const { content } = useDynamicContent();
   const [activeStream, setActiveStream] = useState<StreamType>('makkah');
   const [loading, setLoading] = useState(true);
 
   // YouTube Channel Embed feeds (Makkah Live and Madina Live official feeds)
-  const streamUrls = {
+  const [streamUrls, setStreamUrls] = useState({
     makkah: 'https://www.youtube.com/embed/live_stream?channel=UCE587uE6xy4bO1H9_U0441g',
     madina: 'https://www.youtube.com/embed/live_stream?channel=UC5m_S1kF3mQvH28GZ0t4O7g',
-  };
+  });
+
+  useEffect(() => {
+    if (content.live_streams) {
+      setStreamUrls({
+        makkah: content.live_streams.makkah || streamUrls.makkah,
+        madina: content.live_streams.madina || streamUrls.madina,
+      });
+    }
+  }, [content]);
 
   return (
     <View style={styles.container}>

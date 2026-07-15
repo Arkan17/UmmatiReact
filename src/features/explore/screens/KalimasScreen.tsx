@@ -4,63 +4,16 @@ import { WebView } from 'react-native-webview';
 import { ArrowLeft, Volume2 } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
-
-const KALIMAS = [
-  {
-    number: 1,
-    name: 'First Kalima - Tayyabah',
-    arabic: 'لَا إِلَٰهَ إِلَّا ٱللَّٰهُ مُحَمَّدٌ رَّسُولُ ٱللَّٰهِ',
-    transliteration: 'La ilaha illallah Muhammadu Rasoolullah',
-    translation: 'There is no deity but Allah, and Muhammad is the messenger of Allah.',
-    audio: 'https://www.islamicfinder.org/images/kalmas/audio/kalma-1.mp3',
-  },
-  {
-    number: 2,
-    name: 'Second Kalima - Shahadah',
-    arabic: 'أَشْهَدُ أَنْ لَا إِلَٰهَ إِلَّا ٱللَّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ وَأَشْهَدُ أَنَّ مُحَمَّدًا عَبْدُهُ وَرَسُولُهُ',
-    transliteration: 'Ashhadu al-la ilaha illallahu wahdahu la shareeka lahu wa-ashhadu anna Muhammadan abduhu wa Rasooluhu',
-    translation: 'I bear witness that there is no deity but Allah, alone, without partner, and I bear witness that Muhammad is His servant and His messenger.',
-    audio: 'https://www.islamicfinder.org/images/kalmas/audio/kalma-2.mp3',
-  },
-  {
-    number: 3,
-    name: 'Third Kalima - Tamjeed',
-    arabic: 'سُبْحَانَ ٱللَّٰهِ وَٱلْحَمْدُ لِلَّٰهِ وَلَا إِلَٰهَ إِلَّا ٱللَّٰهُ وَٱللَّٰهُ أَكْبَرُ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِٱللَّٰهِ ٱلْعَلِيِّ ٱلْعَظِيمِ',
-    transliteration: 'Subhanallahi wal hamdulillahi wala ilaha illallahu wallahu akbar, wala hawla wala quwwata illa billahil aliyyil azeem',
-    translation: 'Glory be to Allah, and praise be to Allah, and there is no deity but Allah, and Allah is most great. And there is no power and no strength except in Allah, the Most High, the Most Great.',
-    audio: 'https://www.islamicfinder.org/images/kalmas/audio/kalma-3.mp3',
-  },
-  {
-    number: 4,
-    name: 'Fourth Kalima - Tauheed',
-    arabic: 'لَا إِلَٰهَ إِلَّا ٱللَّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ ٱلْمُلْكُ وَلَهُ ٱلْحَمْدُ، يُحْيِي وَيُمِيتُ، بِيَدِهِ ٱلْخَيْرُ، وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ',
-    transliteration: 'La ilaha illallahu wahdahu la shareeka lahu, lahul mulku walahul hamdu, yuhyi wa yumeetu, biyadihil khairu, wahuwa ala kulli shayin qadeer',
-    translation: 'There is no deity but Allah, alone, without partner. His is the sovereignty, and His is the praise. He gives life and causes death. In His hand is goodness, and He has power over all things.',
-    audio: 'https://www.islamicfinder.org/images/kalmas/audio/kalma-4.mp3',
-  },
-  {
-    number: 5,
-    name: 'Fifth Kalima - Astaghfar',
-    arabic: 'أَسْتَغْفِرُ ٱللَّٰهَ رَبِّي مِنْ كُلِّ ذَنْبٍ أَذْنَبْتُهُ عَمَدًا أَوْ خَطَأً سِرًّا أَوْ عَلَانِيَةً وَأَتُوبُ إِلَيْهِ مِنَ ٱلذَّنْبِ ٱلَّذِي أَعْلَمُ وَمِنَ ٱلذَّنْبِ ٱلَّذِي لَا أَعْلَمُ، إِنَّكَ أَنْتَ عَلَّامُ ٱلْغُيُوبِ وَسَتَّارُ ٱلْعُيُوبِ وَغَفَّارُ ٱلذُّنُوبِ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِٱللَّٰهِ ٱلْعَلِيِّ ٱلْعَظِيمِ',
-    transliteration: 'Astaghfirullaha rabbi min kulli zambin aznabtuhu amadan aw khata-an sirran aw alaniyatan wa-atoobu ilaihi minaz-zambillazi a-alamu wa minaz-zambillazi la a-alamu, innaka anta allamul ghuyoobi wa sattarul uyoobi wa ghaffaruz zunoobi wala hawla wala quwwata illa billahil aliyyil azeem',
-    translation: 'I seek forgiveness from Allah, my Lord, for every sin I committed knowingly or unknowingly, secretly or openly, and I turn to Him in repentance for the sin that I know and for the sin that I do not know. Indeed, You are the Knower of the unseen, the Coverer of faults, and the Forgiver of sins. And there is no power and no strength except in Allah, the Most High, the Most Great.',
-    audio: 'https://www.islamicfinder.org/images/kalmas/audio/kalma-5.mp3',
-  },
-  {
-    number: 6,
-    name: 'Sixth Kalima - Radde Kufr',
-    arabic: 'ٱللَّٰهُمَّ إِنِّي أَعُوذُ بِكَ مِنْ أَنْ أُشْرِكَ بِكَ شَيْءٍ وَأَنَا أَعْلَمُ بِهِ، وَأَسْتَغْفِرُكَ لِمَا لَا أَعْلَمُ بِهِ، تُبْتُ عَنْهُ وَتَبَرَّأْتُ مِنَ ٱلْكُفْرِ وَٱلشِّرْكِ وَٱلْكِذْبِ وَٱلْغِيبَةِ وَٱلْبِدْعَةِ وَٱلنَّمِيمَةِ وَٱلْفَوَاحِشِ وَٱلْبُهْتَانِ وَٱلْمَعَاصِي كُلِّهَا، وَأَسْلَمْتُ وَأَقُولُ لَا إِلَٰهَ إِلَّا ٱللَّٰهُ مُحَمَّدٌ رَّسُولُ ٱللَّٰهِ',
-    transliteration: 'Allahumma inni a-oozubika min an ushrika bika shai-an wa-ana a-alamu bihi, wa-astaghfiruka lima la a-alamu bihi, tubtu anhu wa tabarratu minal kufri wash-shirki wal kizbi wal gheebati wal bid-ati wan-nameemati wal fawahishi wal buhtani wal ma-asi kulliha, wa-aslamtu wa-aqoolu La ilaha illallahu Muhammadu Rasoolullah',
-    translation: 'O Allah! I seek protection in You from associating partners with You knowingly, and I seek Your forgiveness for what I do not know. I repent from it and free myself from disbelief, polytheism, falsehood, backbiting, innovation, slander, lewdness, calumny, and all disobedience. I submit, and I say: There is no deity but Allah, and Muhammad is the messenger of Allah.',
-    audio: 'https://www.islamicfinder.org/images/kalmas/audio/kalma-6.mp3',
-  },
-];
+import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 export function KalimasScreen() {
   const navigation = useNavigation();
+  const { content } = useDynamicContent();
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
+
+  const kalimas = content.kalimas || [];
 
   const handlePlayAudio = (index: number, url: string) => {
     if (playingIndex === index) {
@@ -125,7 +78,7 @@ export function KalimasScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-        {KALIMAS.map((item, index) => {
+        {kalimas.map((item, index) => {
           const isCurrentPlaying = playingIndex === index;
           return (
             <View key={item.number} style={styles.card}>

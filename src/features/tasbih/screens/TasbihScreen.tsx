@@ -23,7 +23,7 @@ export function TasbihScreen() {
   const [count, setCount] = useState(0);
   const [totalDhikrSession, setTotalDhikrSession] = useState(0);
   const [hapticEnabled, setHapticEnabled] = useState(true);
-  
+
   // History list
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -36,8 +36,8 @@ export function TasbihScreen() {
   const strokeWidth = 12;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
-  const strokeDashoffset = target > 0 
-    ? circumference - (Math.min(count, target) / target) * circumference 
+  const strokeDashoffset = target > 0
+    ? circumference - (Math.min(count, target) / target) * circumference
     : 0;
 
   const handleIncrement = () => {
@@ -56,7 +56,7 @@ export function TasbihScreen() {
       if (hapticEnabled) {
         Vibration.vibrate(Platform.OS === 'android' ? [0, 80, 50, 80] : [0, 80, 50, 80]);
       }
-      
+
       // Auto save session target reach
       saveDhikrRecord(currentPreset.phrase, target);
       setCount(0);
@@ -120,7 +120,7 @@ export function TasbihScreen() {
         .select('total_xp')
         .eq('user_id', user.id)
         .single();
-        
+
       if (progress) {
         await supabase
           .from('user_progress')
@@ -210,7 +210,7 @@ export function TasbihScreen() {
         <View style={styles.counterSection}>
           <Text style={styles.phraseAr}>{currentPreset.arabic}</Text>
           <Text style={styles.phraseEn}>{currentPreset.phrase}</Text>
-          
+
           <TouchableOpacity style={styles.incrementArea} onPress={handleIncrement} activeOpacity={0.8}>
             <View style={styles.circleContainer}>
               <Svg width={size} height={size}>

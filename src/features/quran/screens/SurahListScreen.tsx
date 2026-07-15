@@ -68,7 +68,7 @@ export function SurahListScreen() {
       setFilteredSurahs(surahs);
       return;
     }
-    
+
     const lowerText = text.toLowerCase();
     const filtered = surahs.filter(
       (s) =>

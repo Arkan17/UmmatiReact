@@ -4,45 +4,21 @@ import { WebView } from 'react-native-webview';
 import { ArrowLeft, Play, Pause, SkipForward, SkipBack, Music } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
+import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const NAATS = [
-  {
-    id: 0,
-    title: 'Faslon Ko Takalluf Hai Humse Agar',
-    artist: 'Qari Waheed Zafar Qasmi',
-    url: 'https://download.naatya.com/audio/faslon-ko-takalluf-qari-waheed.mp3', // Standard public MP3 URL
-  },
-  {
-    id: 1,
-    title: 'Tajdar-e-Haram Ae Shahenshah-e-Deen',
-    artist: 'Sabri Brothers / Amjad Sabri',
-    url: 'https://download.naatya.com/audio/tajdar-e-haram-amjad-sabri.mp3',
-  },
-  {
-    id: 2,
-    title: 'Madine Chalein Unko Aise Pukarein',
-    artist: 'Alhaaj Owais Raza Qadri',
-    url: 'https://download.naatya.com/audio/madine-chalein-owais-qadri.mp3',
-  },
-  {
-    id: 3,
-    title: 'Hasbi Rabbi Jallallah',
-    artist: 'Sami Yusuf',
-    url: 'https://download.naatya.com/audio/hasbi-rabbi-sami-yusuf.mp3',
-  },
-];
-
 export function NaatsScreen() {
   const navigation = useNavigation();
+  const { content } = useDynamicContent();
   
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const webViewRef = useRef<WebView<{}>>(null);
   
-  const activeTrack = NAATS[currentTrackIndex];
+  const naats = content.naats || [];
+  const activeTrack = naats[currentTrackIndex] || { title: 'Naat', artist: '', url: '' };
   
   const injectPlayerCmd = (cmd: string) => {
     webViewRef.current?.injectJavaScript(`document.getElementById("naat-player").${cmd}();`);
@@ -59,15 +35,17 @@ export function NaatsScreen() {
   };
   
   const handleNext = () => {
+    if (naats.length === 0) return;
     setBuffering(true);
-    const nextIdx = (currentTrackIndex + 1) % NAATS.length;
+    const nextIdx = (currentTrackIndex + 1) % naats.length;
     setCurrentTrackIndex(nextIdx);
     setIsPlaying(true);
   };
   
   const handlePrev = () => {
+    if (naats.length === 0) return;
     setBuffering(true);
-    const prevIdx = (currentTrackIndex - 1 + NAATS.length) % NAATS.length;
+    const prevIdx = (currentTrackIndex - 1 + naats.length) % naats.length;
     setCurrentTrackIndex(prevIdx);
     setIsPlaying(true);
   };
@@ -80,7 +58,7 @@ export function NaatsScreen() {
   
   // Trigger HTML play script when track index changes
   useEffect(() => {
-    if (isPlaying) {
+    if (isPlaying && activeTrack.url) {
       setTimeout(() => {
         const script = `
           const player = document.getElementById("naat-player");
@@ -90,12 +68,12 @@ export function NaatsScreen() {
         webViewRef.current?.injectJavaScript(script);
       }, 400);
     }
-  }, [currentTrackIndex, activeTrack.url, isPlaying]);
+  }, [currentTrackIndex, activeTrack?.url, isPlaying]);
 
   const htmlAudio = `
     <html>
       <body>
-        <audio id="naat-player" src="${activeTrack.url}"></audio>
+        <audio id="naat-player" src="${activeTrack?.url || ''}"></audio>
         <script>
           const player = document.getElementById("naat-player");
           player.onended = () => {
@@ -182,7 +160,7 @@ export function NaatsScreen() {
           <Text style={styles.sectionHeader}>Playlist Tracks</Text>
           
           <View style={styles.listBorder}>
-            {NAATS.map((track, idx) => {
+            {naats.map((track, idx) => {
               const isSelected = idx === currentTrackIndex;
               return (
                 <TouchableOpacity

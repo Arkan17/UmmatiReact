@@ -10,9 +10,9 @@ export interface LocationData {
   isUsingFallback: boolean;
 }
 
-// Fallback to Makkah (Kaaba coordinates)
-const FALLBACK_LAT = 21.422487;
-const FALLBACK_LNG = 39.826206;
+// Fallback to Mumbai, India (matching user's preferred region)
+const FALLBACK_LAT = 19.0760;
+const FALLBACK_LNG = 72.8777;
 
 export const useLocation = () => {
   const [location, setLocation] = useState<LocationData>({

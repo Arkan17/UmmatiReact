@@ -22,9 +22,9 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
 };
@@ -57,11 +57,11 @@ export function QiblaScreen() {
     try {
       // Safely import to prevent compile issues if not fully linked
       CompassHeading = require('react-native-compass-heading').default;
-      
+
       if (CompassHeading) {
         setIsSensorAvailable(true);
         const degree_update_rate = 1;
-        
+
         CompassHeading.start(degree_update_rate, ({ heading }: { heading: number }) => {
           if (!isManualMode) {
             setDeviceHeading(heading);
@@ -129,7 +129,7 @@ export function QiblaScreen() {
               <Svg width={COMPASS_SIZE} height={COMPASS_SIZE} viewBox="0 0 200 200">
                 {/* Dial circle */}
                 <SvgCircle cx="100" cy="100" r="95" stroke={Theme.colors.border} strokeWidth="2" fill={Theme.colors.surface} />
-                
+
                 {/* Degree ticks */}
                 {Array.from({ length: 12 }).map((_, i) => {
                   const angle = (i * 30 * Math.PI) / 180;
@@ -167,7 +167,7 @@ export function QiblaScreen() {
                     fill={Theme.colors.accent}
                   />
                   <Line x1="100" y1="55" x2="100" y2="100" stroke={Theme.colors.accent} strokeWidth="2" strokeDasharray="3" />
-                  
+
                   {/* Kaaba Representation Marker */}
                   <Path
                     d="M93,30 L107,30 L107,44 L93,44 Z"
@@ -176,7 +176,7 @@ export function QiblaScreen() {
                   {/* Gold band on Kaaba representation */}
                   <Line x1="93" y1="34" x2="107" y2="34" stroke={Theme.colors.accent} strokeWidth="1.5" />
                 </G>
-                
+
                 {/* Center cap */}
                 <SvgCircle cx="100" cy="100" r="6" fill={Theme.colors.white} stroke={Theme.colors.border} strokeWidth="2" />
               </Svg>

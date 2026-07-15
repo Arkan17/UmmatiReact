@@ -27,11 +27,11 @@ export function QuranReadingScreen() {
   const [ayahs, setAyahs] = useState<Ayah[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
+
   // Bookmarks & Last Read State
   const [lastReadAyah, setLastReadAyah] = useState<number | null>(null);
   const [bookmarkedAyahs, setBookmarkedAyahs] = useState<Record<number, boolean>>({});
-  
+
   // Audio Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const webViewRef = useRef<WebView<{}>>(null);
@@ -46,7 +46,7 @@ export function QuranReadingScreen() {
     try {
       const cacheKey = `ummati_cached_surah_${surahNumber}`;
       const cached = await AsyncStorage.getItem(cacheKey);
-      
+
       if (cached) {
         setAyahs(JSON.parse(cached));
         setLoading(false);
@@ -89,7 +89,7 @@ export function QuranReadingScreen() {
       if (saved) {
         setBookmarkedAyahs(JSON.parse(saved));
       }
-      
+
       // Load last read from device cache
       const lastRead = await AsyncStorage.getItem(`ummati_last_read_surah_${surahNumber}`);
       if (lastRead) {
@@ -106,14 +106,14 @@ export function QuranReadingScreen() {
       ...bookmarkedAyahs,
       [ayah.number]: !isBookmarked,
     };
-    
+
     setBookmarkedAyahs(updated);
     await AsyncStorage.setItem('ummati_saved_bookmarks', JSON.stringify(updated));
 
     // Update Last Read and Progress in Supabase
     setLastReadAyah(ayah.numberInSurah);
     await AsyncStorage.setItem(`ummati_last_read_surah_${surahNumber}`, ayah.numberInSurah.toString());
-    
+
     if (user) {
       try {
         // Log activity progress
@@ -126,7 +126,7 @@ export function QuranReadingScreen() {
             updated_at: new Date().toISOString()
           })
           .eq('user_id', user.id);
-          
+
         // Log daily Quran activity
         const todayStr = new Date().toISOString().split('T')[0];
         await supabase.from('user_activities').insert({
@@ -196,7 +196,7 @@ export function QuranReadingScreen() {
   const renderAyahRow = ({ item }: { item: Ayah }) => {
     const isBookmarked = !!bookmarkedAyahs[item.number];
     const isLastRead = lastReadAyah === item.numberInSurah;
-    
+
     return (
       <View style={[styles.ayahContainer, isLastRead ? styles.lastReadContainer : null]}>
         {/* Ayah Actions Row */}
@@ -204,7 +204,7 @@ export function QuranReadingScreen() {
           <View style={styles.ayahBadge}>
             <Text style={styles.ayahBadgeText}>{item.numberInSurah}</Text>
           </View>
-          
+
           <View style={styles.ayahActions}>
             {isLastRead ? <Text style={styles.lastReadLabel}>LAST READ</Text> : null}
             <TouchableOpacity onPress={() => handleBookmarkAyah(item)} style={styles.actionBtn}>
@@ -219,7 +219,7 @@ export function QuranReadingScreen() {
 
         {/* Text Arabic */}
         <Text style={styles.textArabic}>{item.textAr}</Text>
-        
+
         {/* Text English Translation */}
         <Text style={styles.textEnglish}>{item.textEn}</Text>
       </View>
@@ -298,7 +298,7 @@ export function QuranReadingScreen() {
                 <Text style={styles.audioArtist}>Sheikh Mishary Alafasy</Text>
               </View>
             </View>
-            
+
             <TouchableOpacity style={styles.playBtn} onPress={toggleAudio}>
               {isPlaying ? (
                 <Pause color={Theme.colors.white} size={22} fill={Theme.colors.white} />

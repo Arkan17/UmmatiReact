@@ -7,7 +7,7 @@ import { supabase } from '../../../core/config/SupabaseClient';
 
 export function ProfileScreen() {
   const { user, logout } = useAuth();
-  
+
   const [streak, setStreak] = useState(0);
   const [totalXp, setTotalXp] = useState(0);
   const [lastReadSurah, setLastReadSurah] = useState<number | null>(null);
@@ -49,7 +49,7 @@ export function ProfileScreen() {
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('activity_type', 'prayer');
-      
+
       if (prayersError) throw prayersError;
       setTotalPrayersLogged(prayersCount || 0);
 
@@ -90,22 +90,22 @@ export function ProfileScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          
+
           {/* 1. Curved Profile Header (Mockup Style) */}
           <View style={styles.profileHeaderCard}>
             <Text style={styles.screenTitleText}>Profile</Text>
-            
+
             <View style={styles.avatarCircle}>
               <Text style={styles.avatarInitial}>
                 {user?.username?.charAt(0).toUpperCase() || 'U'}
               </Text>
             </View>
             <Text style={styles.profileUsername}>{user?.username || 'Guest User'}</Text>
-            
+
             <View style={styles.levelStatusBadge}>
               <Text style={styles.levelStatusText}>⭐ Level {currentLevel}</Text>
             </View>
-            
+
             <View style={styles.xpProgressContainer}>
               <View style={styles.xpProgressHeader}>
                 <Text style={styles.xpTextValue}>{totalXp} XP</Text>
@@ -177,7 +177,7 @@ export function ProfileScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-            
+
             {copied ? (
               <Text style={styles.copiedText}>Copied to clipboard!</Text>
             ) : null}
@@ -228,7 +228,7 @@ export function ProfileScreen() {
               <Text style={[styles.menuItemChevron, { color: Theme.colors.error }]}>›</Text>
             </TouchableOpacity>
           </View>
-          
+
         </ScrollView>
       )}
     </View>

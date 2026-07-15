@@ -1,0 +1,242 @@
+{
+  "verses_of_the_day": [
+    {
+      "arabic": "إِنَّ مَعَ الْعُسْرِ يُسْرًا",
+      "translation": "Indeed, with hardship [will be] ease.",
+      "reference": "Surah Ash-Sharh 94:6"
+    },
+    {
+      "arabic": "وَاقِيمُوا الصَّلَاةَ وَآتُوا الزَّكَاةَ",
+      "translation": "And establish prayer and give zakah.",
+      "reference": "Surah Al-Baqarah 2:43"
+    },
+    {
+      "arabic": "ادْعُونِي أَسْتَجِبْ لَكُمْ",
+      "translation": "Call upon Me; I will respond to you.",
+      "reference": "Surah Ghafir 40:60"
+    },
+    {
+      "arabic": "وَاللَّهُ مَعَ الصَّابِرِينَ",
+      "translation": "And Allah is with the patient.",
+      "reference": "Surah Al-Baqarah 2:249"
+    },
+    {
+      "arabic": "إِنَّ اللَّهَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ",
+      "translation": "Indeed, Allah is over all things competent.",
+      "reference": "Surah Al-Baqarah 2:20"
+    }
+  ],
+  "duas": [
+    {
+      "id": 1,
+      "category": "Morning/Evening",
+      "title": "Dua upon waking up",
+      "arabic": "الْحَمْدُ لِلَّهِ الَّذِي أَحْيَانَا بَعْدَ مَا أَمَاتَنَا وَإِلَيْهِ النُّشُورُ",
+      "transliteration": "Alhamdu lillahil-lazee ahyana ba'da ma amatana wa-ilaihin-nushoor",
+      "translation": "Praise is to Allah Who gave us life after He had caused us to die, and to Him is the resurrection.",
+      "audio": "http://www.duas.com/sounds/58.mp3"
+    },
+    {
+      "id": 2,
+      "category": "Morning/Evening",
+      "title": "Dua before sleeping",
+      "arabic": "بِاسْمِكَ اللَّهُمَّ أَمُوتُ وَأَحْيَا",
+      "transliteration": "Bismika Allahumma amootu wa-ahya",
+      "translation": "In Your name, O Allah, I die and I live.",
+      "audio": "http://www.duas.com/sounds/57.mp3"
+    },
+    {
+      "id": 3,
+      "category": "Daily Life",
+      "title": "Dua before eating",
+      "arabic": "بِسْمِ اللَّهِ وَعَلَى بَرَكَةِ اللَّهِ",
+      "transliteration": "Bismillahi wa 'ala barakatillah",
+      "translation": "In the name of Allah and with the blessings of Allah.",
+      "audio": "http://www.duas.com/sounds/48.mp3"
+    },
+    {
+      "id": 4,
+      "category": "Daily Life",
+      "title": "Dua after finishing meal",
+      "arabic": "الْحَمْدُ لِلَّهِ الَّذِي أَطْعَمَنَا وَسَقَانَا وَجَعَلَنَا مُسْلِمِينَ",
+      "transliteration": "Alhamdu lillahil-lazee at'amana wa-saqana wa-ja'alana muslimeen",
+      "translation": "Praise is to Allah Who has fed us and given us drink and made us Muslims.",
+      "audio": "http://www.duas.com/sounds/50.mp3"
+    },
+    {
+      "id": 5,
+      "category": "Travel",
+      "title": "Dua for traveling",
+      "arabic": "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَٰذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَىٰ رَبِّنَا لَمُنْقَلِبُونَ",
+      "transliteration": "Subhanal-lazee sakhkhara lana haza wama kunna lahu muqrineen, wa-inna ila rabbina lamunqaliboon",
+      "translation": "Glory is to Him Who has subjected this to us, and we were not able to control it, and indeed to our Lord we will return.",
+      "audio": "http://www.duas.com/sounds/104.mp3"
+    },
+    {
+      "id": 6,
+      "category": "Protection",
+      "title": "Dua for protection from harm",
+      "arabic": "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ",
+      "transliteration": "Bismillahil-lazee la yadurru ma'as-mihi shai'un fil-ardi wala fis-samai wa-huwas-samee'ul-aleem",
+      "translation": "In the name of Allah, with Whose name nothing can cause harm in the earth nor in the heaven, and He is the All-Hearing, the All-Knowing.",
+      "audio": "http://www.duas.com/sounds/306.mp3"
+    }
+  ],
+  "kalimas": [
+    {
+      "number": 1,
+      "name": "First Kalima - Tayyabah",
+      "arabic": "لَا إِلَٰهَ إِلَّا ٱللَّٰهُ مُحَمَّدٌ رَّسُولُ ٱللَّٰهِ",
+      "transliteration": "La ilaha illallah Muhammadu Rasoolullah",
+      "translation": "There is no deity but Allah, and Muhammad is the messenger of Allah.",
+      "audio": "https://www.islamicfinder.org/images/kalmas/audio/kalma-1.mp3"
+    },
+    {
+      "number": 2,
+      "name": "Second Kalima - Shahadah",
+      "arabic": "أَشْهَدُ أَنْ لَا إِلَٰهَ إِلَّا ٱللَّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ وَأَشْهَدُ أَنَّ مُحَمَّدًا عَبْدُهُ وَرَسُولُهُ",
+      "transliteration": "Ashhadu al-la ilaha illallahu wahdahu la shareeka lahu wa-ashhadu anna Muhammadan abduhu wa Rasooluhu",
+      "translation": "I bear witness that there is no deity but Allah, alone, without partner, and I bear witness that Muhammad is His servant and His messenger.",
+      "audio": "https://www.islamicfinder.org/images/kalmas/audio/kalma-2.mp3"
+    },
+    {
+      "number": 3,
+      "name": "Third Kalima - Tamjeed",
+      "arabic": "سُبْحَانَ ٱللَّٰهِ وَٱلْحَمْدُ لِلَّٰهِ وَلَا إِلَٰهَ إِلَّا ٱللَّٰهُ وَٱللَّٰهُ أَكْبَرُ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِٱللَّٰهِ ٱلْعَلِيِّ ٱلْعَظِيمِ",
+      "transliteration": "Subhanallahi wal hamdulillahi wala ilaha illallahu wallahu akbar, wala hawla wala quwwata illa billahil aliyyil azeem",
+      "translation": "Glory be to Allah, and praise be to Allah, and there is no deity but Allah, and Allah is most great. And there is no power and no strength except in Allah, the Most High, the Most Great.",
+      "audio": "https://www.islamicfinder.org/images/kalmas/audio/kalma-3.mp3"
+    },
+    {
+      "number": 4,
+      "name": "Fourth Kalima - Tauheed",
+      "arabic": "لَا إِلَٰهَ إِلَّا ٱللَّٰهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ ٱلْمُلْكُ وَلَهُ ٱلْحَمْدُ، يُحْيِي وَيُمِيتُ، بِيَدِهِ ٱلْخَيْرُ، وَهُوَ عَلَىٰ كُلِّ شَيْءٍ قَدِيرٌ",
+      "transliteration": "La ilaha illallahu wahdahu la shareeka lahu, lahul mulku walahul hamdu, yuhyi wa yumeetu, biyadihil khairu, wahuwa ala kulli shayin qadeer",
+      "translation": "There is no deity but Allah, alone, without partner. His is the sovereignty, and His is the praise. He gives life and causes death. In His hand is goodness, and He has power over all things.",
+      "audio": "https://www.islamicfinder.org/images/kalmas/audio/kalma-4.mp3"
+    },
+    {
+      "number": 5,
+      "name": "Fifth Kalima - Astaghfar",
+      "arabic": "أَسْتَغْفِرُ ٱللَّٰهَ رَبِّي مِنْ كُلِّ ذَنْبٍ أَذْنَبْتُهُ عَمَدًا أَوْ خَطَأً سِرًّا أَوْ عَلَانِيَةً وَأَتُوبُ إِلَيْهِ مِنَ ٱلذَّنْبِ ٱلَّذِي أَعْلَمُ وَمِنَ ٱلذَّنْبِ ٱلَّذِي لَا أَعْلَمُ، إِنَّكَ أَنْتَ عَلَّامُ ٱلْغُيُوبِ وَسَتَّارُ ٱلْعُيُوبِ وَغَفَّارُ ٱلذُّنُوبِ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِٱللَّٰهِ ٱلْعَلِيِّ ٱلْعَظِيمِ",
+      "transliteration": "Astaghfirullaha rabbi min kulli zambin aznabtuhu amadan aw khata-an sirran aw alaniyatan wa-atoobu ilaihi minaz-zambillazi a-alamu wa minaz-zambillazi la a-alamu, innaka anta allamul ghuyoobi wa sattarul uyoobi wa ghaffaruz zunoobi wala hawla wala quwwata illa billahil aliyyil azeem",
+      "translation": "I seek forgiveness from Allah, my Lord, for every sin I committed knowingly or unknowingly, secretly or openly, and I turn to Him in repentance for the sin that I know and for the sin that I do not know. Indeed, You are the Knower of the unseen, the Coverer of faults, and the Forgiver of sins. And there is no power and no strength except in Allah, the Most High, the Most Great.",
+      "audio": "https://www.islamicfinder.org/images/kalmas/audio/kalma-5.mp3"
+    },
+    {
+      "number": 6,
+      "name": "Sixth Kalima - Radde Kufr",
+      "arabic": "ٱللَّٰهُمَّ إِنِّي أَعُوذُ بِكَ مِنْ أَنْ أُشْرِكَ بِكَ شَيْءٍ وَأَنَا أَعْلَمُ بِهِ، وَأَسْتَغْفِرُكَ لِمَا لَا أَعْلَمُ بِهِ، تُبْتُ عَنْهُ وَتَبَرَّأْتُ مِنَ ٱلْكُفْرِ وَٱلشِّرْكِ وَٱلْكِذْبِ وَٱلْغِيبَةِ وَٱلْبِدْعَةِ وَٱلنَّمِيمَةِ وَٱلْفَوَاحِشِ وَٱلْبُهْتَانِ وَٱلْمَعَاصِي كُلِّهَا، وَأَسْلَمْتُ وَأَقُولُ لَا إِلَٰهَ إِلَّا ٱللَّٰهُ مُحَمَّدٌ رَّسُولُ ٱللَّٰهِ",
+      "transliteration": "Allahumma inni a-oozubika min an ushrika bika shai-an wa-ana a-alamu bihi, wa-astaghfiruka lima la a-alamu bihi, tubtu anhu wa tabarratu minal kufri wash-shirki wal kizbi wal gheebati wal bid-ati wan-nameemati wal fawahishi wal buhtani wal ma-asi kulliha, wa-aslamtu wa-aqoolu La ilaha illallahu Muhammadu Rasoolullah",
+      "translation": "O Allah! I seek protection in You from associating partners with You knowingly, and I seek Your forgiveness for what I do not know. I repent from it and free myself from disbelief, polytheism, falsehood, backbiting, innovation, slander, lewdness, calumny, and all disobedience. I submit, and I say: There is no deity but Allah, and Muhammad is the messenger of Allah.",
+      "audio": "https://www.islamicfinder.org/images/kalmas/audio/kalma-6.mp3"
+    }
+  ],
+  "naats": [
+    {
+      "id": 0,
+      "title": "Faslon Ko Takalluf Hai Humse Agar",
+      "artist": "Qari Waheed Zafar Qasmi",
+      "url": "https://download.naatya.com/audio/faslon-ko-takalluf-qari-waheed.mp3"
+    },
+    {
+      "id": 1,
+      "title": "Tajdar-e-Haram Ae Shahenshah-e-Deen",
+      "artist": "Sabri Brothers / Amjad Sabri",
+      "url": "https://download.naatya.com/audio/tajdar-e-haram-amjad-sabri.mp3"
+    },
+    {
+      "id": 2,
+      "title": "Madine Chalein Unko Aise Pukarein",
+      "artist": "Alhaaj Owais Raza Qadri",
+      "url": "https://download.naatya.com/audio/madine-chalein-owais-qadri.mp3"
+    },
+    {
+      "id": 3,
+      "title": "Hasbi Rabbi Jallallah",
+      "artist": "Sami Yusuf",
+      "url": "https://download.naatya.com/audio/hasbi-rabbi-sami-yusuf.mp3"
+    }
+  ],
+  "live_streams": {
+    "makkah": "https://www.youtube.com/embed/live_stream?channel=UCE587uE6xy4bO1H9_U0441g",
+    "madina": "https://www.youtube.com/embed/live_stream?channel=UC5m_S1kF3mQvH28GZ0t4O7g"
+  },
+  "kids": {
+    "stories": [
+      {
+        "title": "Prophet Nuh (AS) and the Ark",
+        "moral": "Trust in Allah and be patient, for He always protects the believers.",
+        "text": "Allah told Prophet Nuh (AS) to build a giant ship called an Ark. The people laughed at him because they were in a dry desert! But Nuh trusted Allah completely. Soon, a great flood came, and Nuh brought two of every animal onto the Ark. The believers were safe inside, and Nuh thanked Allah for saving them."
+      },
+      {
+        "title": "Prophet Yunus (AS) and the Whale",
+        "moral": "Always say sorry when you make a mistake, and remember Allah is most forgiving.",
+        "text": "Prophet Yunus (AS) left his town without Allah's permission. During a stormy sea journey, he was swallowed by a gigantic whale! Deep inside the whale's dark belly, Yunus prayed: \"La ilaha illa anta subhanaka inni kuntu minaz-zalimeen\" (There is no deity but You, Glory be to You, I was of the wrongdoers). Allah heard his prayer and commanded the whale to gently spit Yunus onto the shore."
+      },
+      {
+        "title": "The Story of the Elephant",
+        "moral": "Allah protects His sacred house, the Kaaba, from any harm.",
+        "text": "Before Islam, a king named Abrahah marched to Makkah with a huge army of elephants to destroy the Kaaba. But when they reached Makkah, the lead elephant refused to move. Suddenly, Allah sent flocks of small birds carrying tiny stones in their beaks. They dropped the stones on the army, protecting the Kaaba and defeating the army."
+      }
+    ],
+    "wudu_steps": [
+      "1. Niyyah (intention) & say Bismillah",
+      "2. Wash hands to the wrists 3 times",
+      "3. Rinse mouth 3 times",
+      "4. Clean nose 3 times",
+      "5. Wash face fully 3 times",
+      "6. Wash arms to the elbows 3 times (Right first)",
+      "7. Wipe wet hands over head 1 time",
+      "8. Clean inside & back of ears 1 time",
+      "9. Wash feet to the ankles 3 times (Right first)"
+    ],
+    "salah_steps": [
+      "1. Takbeer: Raise hands & say \"Allahu Akbar\"",
+      "2. Qiyam: Stand straight, fold arms, recite Surah Al-Fatihah",
+      "3. Ruku: Bow down, hands on knees, praise Allah",
+      "4. Sujud: Prostrate on ground, forehead touching floor, praise Allah",
+      "5. Tashahhud: Sit on knees, recite declarations of faith",
+      "6. Salam: Turn head right then left, saying \"Assalamu Alaikum\""
+    ],
+    "words": [
+      {
+        "word": "Bismillah",
+        "meaning": "In the name of Allah",
+        "when": "Say before starting anything (eating, sleeping, reading)."
+      },
+      {
+        "word": "Alhamdulillah",
+        "meaning": "Praise be to Allah",
+        "when": "Say after eating, sneezing, or when something good happens."
+      },
+      {
+        "word": "SubhanAllah",
+        "meaning": "Glory be to Allah",
+        "when": "Say when you see something beautiful or amazing."
+      },
+      {
+        "word": "JazakAllah Khair",
+        "meaning": "May Allah reward you with goodness",
+        "when": "Say to thank someone for doing something nice."
+      }
+    ],
+    "quiz_questions": [
+      {
+        "q": "How many daily obligatory prayers are there in Islam?",
+        "options": ["3", "5", "7"],
+        "correct": 1
+      },
+      {
+        "q": "Which holy book was revealed to Prophet Muhammad (PBUH)?",
+        "options": ["Torah", "Gospel", "Quran"],
+        "correct": 2
+      },
+      {
+        "q": "What is the name of the first Prophet of Allah?",
+        "options": ["Prophet Adam (AS)", "Prophet Ibrahim (AS)", "Prophet Nuh (AS)"],
+        "correct": 0
+      }
+    ]
+  }
+}

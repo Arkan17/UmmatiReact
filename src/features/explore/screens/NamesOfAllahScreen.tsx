@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft, Search, Volume2 } from 'lucide-react-native';
@@ -110,11 +110,44 @@ const NAMES = [
 
 export function NamesOfAllahScreen() {
   const navigation = useNavigation();
+  const [namesOfAllah, setNamesOfAllah] = useState(NAMES);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [activeAudioUrl, setActiveAudioUrl] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredNames, setFilteredNames] = useState(NAMES);
   const webViewRef = useRef<WebView<{}>>(null);
+
+  useEffect(() => {
+    const fetchLiveNames = async () => {
+      try {
+        const res = await fetch('https://api.aladhan.com/v1/asmaAlHusna');
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.data && json.data.length > 0) {
+            const mapped = json.data.map((item: any) => ({
+              id: item.number,
+              name: item.name,
+              trans: item.transliteration,
+              meaning: item.en.meaning,
+            }));
+            setNamesOfAllah(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch Names of Allah live:', e);
+      }
+    };
+    fetchLiveNames();
+  }, []);
+
+  const filteredNames = searchQuery.trim() === ''
+    ? namesOfAllah
+    : namesOfAllah.filter(
+        (n) =>
+          n.trans.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          n.meaning.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          n.name.includes(searchQuery) ||
+          n.id.toString() === searchQuery
+      );
 
   const handlePlayName = (id: number) => {
     // Standard URL format for IslamicFinder individual name recitations
@@ -141,19 +174,6 @@ export function NamesOfAllahScreen() {
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
-    if (!text.trim()) {
-      setFilteredNames(NAMES);
-      return;
-    }
-    const lowerText = text.toLowerCase();
-    const filtered = NAMES.filter(
-      (n) =>
-        n.trans.toLowerCase().includes(lowerText) ||
-        n.meaning.toLowerCase().includes(lowerText) ||
-        n.name.includes(text) ||
-        n.id.toString() === text
-    );
-    setFilteredNames(filtered);
   };
 
   const htmlAudio = `

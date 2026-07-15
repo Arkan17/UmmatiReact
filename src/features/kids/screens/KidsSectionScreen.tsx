@@ -1,80 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { BookOpen, Smile, Award, CheckCircle, XCircle, ArrowLeft, ArrowRight } from 'lucide-react-native';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { Theme } from '../../../core/theme/theme';
 import { supabase } from '../../../core/config/SupabaseClient';
-
-// 1. Stories Data
-const STORIES = [
-  {
-    title: 'Prophet Nuh (AS) and the Ark',
-    moral: 'Trust in Allah and be patient, for He always protects the believers.',
-    text: 'Allah told Prophet Nuh (AS) to build a giant ship called an Ark. The people laughed at him because they were in a dry desert! But Nuh trusted Allah completely. Soon, a great flood came, and Nuh brought two of every animal onto the Ark. The believers were safe inside, and Nuh thanked Allah for saving them.',
-  },
-  {
-    title: 'Prophet Yunus (AS) and the Whale',
-    moral: 'Always say sorry when you make a mistake, and remember Allah is most forgiving.',
-    text: 'Prophet Yunus (AS) left his town without Allah\'s permission. During a stormy sea journey, he was swallowed by a gigantic whale! Deep inside the whale\'s dark belly, Yunus prayed: "La ilaha illa anta subhanaka inni kuntu minaz-zalimeen" (There is no deity but You, Glory be to You, I was of the wrongdoers). Allah heard his prayer and commanded the whale to gently spit Yunus onto the shore.',
-  },
-  {
-    title: 'The Story of the Elephant',
-    moral: 'Allah protects His sacred house, the Kaaba, from any harm.',
-    text: 'Before Islam, a king named Abrahah marched to Makkah with a huge army of elephants to destroy the Kaaba. But when they reached Makkah, the lead elephant refused to move. Suddenly, Allah sent flocks of small birds carrying tiny stones in their beaks. They dropped the stones on the army, protecting the Kaaba and defeating the army.',
-  },
-];
-
-// 2. Wudu & Salah Guides
-const WUDU_STEPS = [
-  '1. Niyyah (intention) & say Bismillah',
-  '2. Wash hands to the wrists 3 times',
-  '3. Rinse mouth 3 times',
-  '4. Clean nose 3 times',
-  '5. Wash face fully 3 times',
-  '6. Wash arms to the elbows 3 times (Right first)',
-  '7. Wipe wet hands over head 1 time',
-  '8. Clean inside & back of ears 1 time',
-  '9. Wash feet to the ankles 3 times (Right first)',
-];
-
-const SALAH_STEPS = [
-  '1. Takbeer: Raise hands & say "Allahu Akbar"',
-  '2. Qiyam: Stand straight, fold arms, recite Surah Al-Fatihah',
-  '3. Ruku: Bow down, hands on knees, praise Allah',
-  '4. Sujud: Prostrate on ground, forehead touching floor, praise Allah',
-  '5. Tashahhud: Sit on knees, recite declarations of faith',
-  '6. Salam: Turn head right then left, saying "Assalamu Alaikum"',
-];
-
-const WORDS = [
-  { word: 'Bismillah', meaning: 'In the name of Allah', when: 'Say before starting anything (eating, sleeping, reading).' },
-  { word: 'Alhamdulillah', meaning: 'Praise be to Allah', when: 'Say after eating, sneezing, or when something good happens.' },
-  { word: 'SubhanAllah', meaning: 'Glory be to Allah', when: 'Say when you see something beautiful or amazing.' },
-  { word: 'JazakAllah Khair', meaning: 'May Allah reward you with goodness', when: 'Say to thank someone for doing something nice.' },
-];
-
-// 3. Quiz Data
-const QUIZ_QUESTIONS = [
-  {
-    q: 'How many daily obligatory prayers are there in Islam?',
-    options: ['3', '5', '7'],
-    correct: 1, // index 1 = '5'
-  },
-  {
-    q: 'Which holy book was revealed to Prophet Muhammad (PBUH)?',
-    options: ['Torah', 'Gospel', 'Quran'],
-    correct: 2, // 'Quran'
-  },
-  {
-    q: 'What is the name of the first Prophet of Allah?',
-    options: ['Prophet Adam (AS)', 'Prophet Ibrahim (AS)', 'Prophet Nuh (AS)'],
-    correct: 0, // 'Prophet Adam (AS)'
-  },
-];
+import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 export function KidsSectionScreen() {
   const { user } = useAuth();
+  const { content } = useDynamicContent();
   
+  const kidsData = content.kids || { stories: [], wudu_steps: [], salah_steps: [], words: [], quiz_questions: [] };
+  const stories = kidsData.stories || [];
+  const wuduSteps = kidsData.wudu_steps || [];
+  const salahSteps = kidsData.salah_steps || [];
+  const words = kidsData.words || [];
+  const quizQuestions = kidsData.quiz_questions || [];
+
   // Section Navigation ('stories' | 'guide' | 'quiz')
   const [activeTab, setActiveTab] = useState<'stories' | 'guide' | 'quiz'>('stories');
   
@@ -91,7 +33,8 @@ export function KidsSectionScreen() {
   const [score, setScore] = useState(0);
   const [quizFinished, setQuizFinished] = useState(false);
 
-  const activeQuestion = QUIZ_QUESTIONS[currentQIdx];
+  const currentStory = stories[storyIndex] || { title: '', moral: '', text: '' };
+  const activeQuestion = quizQuestions[currentQIdx] || { q: '', options: [], correct: 0 };
 
   const handleAnswerSelect = (optionIdx: number) => {
     if (selectedAns !== null) return; // prevent multiple taps
@@ -103,7 +46,7 @@ export function KidsSectionScreen() {
 
   const handleNextQuestion = () => {
     setSelectedAns(null);
-    if (currentQIdx < QUIZ_QUESTIONS.length - 1) {
+    if (currentQIdx < quizQuestions.length - 1) {
       setCurrentQIdx(currentQIdx + 1);
     } else {
       setQuizFinished(true);
@@ -139,7 +82,7 @@ export function KidsSectionScreen() {
         user_id: user.id,
         activity_type: 'dua', // count as general progress logging
         activity_date: todayStr,
-        details: { activity: 'kids_quiz', score: score, maxScore: QUIZ_QUESTIONS.length, xpEarned: earnedXp }
+        details: { activity: 'kids_quiz', score: score, maxScore: quizQuestions.length, xpEarned: earnedXp }
       });
     } catch (e) {
       console.warn('Failed to save kids quiz XP:', e);
@@ -196,12 +139,12 @@ export function KidsSectionScreen() {
         {activeTab === 'stories' ? (
           <View style={styles.storiesBox}>
             <View style={styles.slideCard}>
-              <Text style={styles.slideTitle}>{STORIES[storyIndex].title}</Text>
-              <Text style={styles.slideBody}>{STORIES[storyIndex].text}</Text>
+              <Text style={styles.slideTitle}>{currentStory.title}</Text>
+              <Text style={styles.slideBody}>{currentStory.text}</Text>
               
               <View style={styles.moralCard}>
                 <Text style={styles.moralTitle}>Moral of the Story</Text>
-                <Text style={styles.moralText}>✨ {STORIES[storyIndex].moral}</Text>
+                <Text style={styles.moralText}>✨ {currentStory.moral}</Text>
               </View>
             </View>
 
@@ -214,13 +157,13 @@ export function KidsSectionScreen() {
               >
                 <ArrowLeft color={storyIndex === 0 ? Theme.colors.textMuted : Theme.colors.white} size={20} />
               </TouchableOpacity>
-              <Text style={styles.indexIndicator}>{storyIndex + 1} / {STORIES.length}</Text>
+              <Text style={styles.indexIndicator}>{stories.length > 0 ? storyIndex + 1 : 0} / {stories.length}</Text>
               <TouchableOpacity
-                style={[styles.controlBtn, storyIndex === STORIES.length - 1 ? styles.controlBtnDisabled : null]}
-                onPress={() => setStoryIndex(Math.min(STORIES.length - 1, storyIndex + 1))}
-                disabled={storyIndex === STORIES.length - 1}
+                style={[styles.controlBtn, storyIndex === stories.length - 1 || stories.length === 0 ? styles.controlBtnDisabled : null]}
+                onPress={() => setStoryIndex(Math.min(stories.length - 1, storyIndex + 1))}
+                disabled={storyIndex === stories.length - 1 || stories.length === 0}
               >
-                <ArrowRight color={storyIndex === STORIES.length - 1 ? Theme.colors.textMuted : Theme.colors.white} size={20} />
+                <ArrowRight color={storyIndex === stories.length - 1 || stories.length === 0 ? Theme.colors.textMuted : Theme.colors.white} size={20} />
               </TouchableOpacity>
             </View>
           </View>
@@ -257,7 +200,7 @@ export function KidsSectionScreen() {
             {guideType === 'wudu' ? (
               <View style={styles.guideContentBox}>
                 <Text style={styles.guideContentTitle}>Steps for performing Wudu (Ablution)</Text>
-                {WUDU_STEPS.map((step, idx) => (
+                {wuduSteps.map((step, idx) => (
                   <View key={idx} style={styles.guideStepRow}>
                     <Text style={styles.guideStepText}>{step}</Text>
                   </View>
@@ -268,7 +211,7 @@ export function KidsSectionScreen() {
             {guideType === 'salah' ? (
               <View style={styles.guideContentBox}>
                 <Text style={styles.guideContentTitle}>Steps for performing Salah (Prayer)</Text>
-                {SALAH_STEPS.map((step, idx) => (
+                {salahSteps.map((step, idx) => (
                   <View key={idx} style={styles.guideStepRow}>
                     <Text style={styles.guideStepText}>{step}</Text>
                   </View>
@@ -278,7 +221,7 @@ export function KidsSectionScreen() {
 
             {guideType === 'words' ? (
               <View style={styles.wordsContainer}>
-                {WORDS.map((w) => (
+                {words.map((w) => (
                   <View key={w.word} style={styles.wordCard}>
                     <Text style={styles.vocabWord}>{w.word}</Text>
                     <Text style={styles.vocabMeaning}>Meaning: "{w.meaning}"</Text>
@@ -298,7 +241,7 @@ export function KidsSectionScreen() {
                 <Award color={Theme.colors.accent} size={64} style={styles.quizStartIcon} />
                 <Text style={styles.quizStartTitle}>Islamic Knowledge Quiz</Text>
                 <Text style={styles.quizStartDesc}>
-                  Answer {QUIZ_QUESTIONS.length} fun questions correctly. You will earn +20 XP points for each correct answer!
+                  Answer {quizQuestions.length} fun questions correctly. You will earn +20 XP points for each correct answer!
                 </Text>
                 <TouchableOpacity style={styles.startQuizBtn} onPress={() => setQuizStarted(true)}>
                   <Text style={styles.startQuizBtnText}>Start Quiz</Text>
@@ -308,7 +251,7 @@ export function KidsSectionScreen() {
               <View style={styles.questionCard}>
                 {/* Question index progress bar */}
                 <View style={styles.progressHeader}>
-                  <Text style={styles.qIndexLabel}>Question {currentQIdx + 1} of {QUIZ_QUESTIONS.length}</Text>
+                  <Text style={styles.qIndexLabel}>Question {currentQIdx + 1} of {quizQuestions.length}</Text>
                   <Text style={styles.scoreCounter}>Score: {score}</Text>
                 </View>
 
@@ -317,7 +260,7 @@ export function KidsSectionScreen() {
 
                 {/* Question Options */}
                 <View style={styles.optionsList}>
-                  {activeQuestion.options.map((option, idx) => {
+                  {(activeQuestion.options || []).map((option, idx) => {
                     const isSelected = selectedAns === idx;
                     const isCorrect = idx === activeQuestion.correct;
                     
@@ -354,7 +297,7 @@ export function KidsSectionScreen() {
                 {selectedAns !== null ? (
                   <TouchableOpacity style={styles.nextQBtn} onPress={handleNextQuestion}>
                     <Text style={styles.nextQBtnText}>
-                      {currentQIdx < QUIZ_QUESTIONS.length - 1 ? 'Next Question' : 'Finish Quiz'}
+                      {currentQIdx < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}
                     </Text>
                   </TouchableOpacity>
                 ) : null}
@@ -368,7 +311,7 @@ export function KidsSectionScreen() {
                   You have completed the quiz!
                 </Text>
                 <Text style={styles.finalScore}>
-                  Final Score: {score} / {QUIZ_QUESTIONS.length}
+                  Final Score: {score} / {quizQuestions.length}
                 </Text>
                 <Text style={styles.xpEarnedLabel}>
                   🏆 You earned +{score * 20} XP Points!

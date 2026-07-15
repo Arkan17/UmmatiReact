@@ -17,7 +17,7 @@ export const Theme = {
     white: '#FFFFFF',
     overlay: 'rgba(15, 23, 42, 0.4)',
   },
-  
+
   gradients: {
     primary: ['#0E9F6E', '#10B981'] as const,   // Emerald gradient
     accent: ['#F59E0B', '#D97706'] as const,    // Gold to Amber
