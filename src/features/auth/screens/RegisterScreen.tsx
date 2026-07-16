@@ -82,10 +82,10 @@ export function RegisterScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-        {/* Back Button */}
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Onboarding')}>
+        {/* Back to Login Button */}
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Login')}>
           <ArrowLeft color={Theme.colors.textSecondary} size={24} />
-          <Text style={styles.backButtonText}>Back</Text>
+          <Text style={styles.backButtonText}>Back to Login</Text>
         </TouchableOpacity>
 
         {/* Header */}
@@ -157,6 +157,11 @@ export function RegisterScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Switch Auth Redirect Link */}
+        <TouchableOpacity style={styles.switchAuthBtn} onPress={() => navigation.navigate('Login')}>
+          <Text style={styles.switchAuthText}>Already have an account? Login</Text>
+        </TouchableOpacity>
 
         {/* Unique App ID Modal Pop-up */}
         <Modal
@@ -370,5 +375,15 @@ const styles = StyleSheet.create({
     color: Theme.colors.white,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  switchAuthBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  switchAuthText: {
+    color: Theme.colors.primary,
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });

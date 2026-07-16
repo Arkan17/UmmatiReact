@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Platform, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Search, BookOpen, AlertCircle, RefreshCw, BookmarkCheck } from 'lucide-react-native';
+import { Search, BookOpen, AlertCircle, RefreshCw, BookmarkCheck, Bookmark, Sparkles, Heart } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
+import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../core/navigation/RootNavigator';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from 'react-native-svg';
 
 interface Surah {
   number: number;
@@ -58,8 +60,34 @@ const JUZ_LIST: JuzItem[] = [
   { number: 30, name: 'Amma Yatasa\'alun', nameAr: 'عم يتساءلون', description: 'Starts at An-Naba 78:1' }
 ];
 
+const RubElHizb = ({ number, color }: { number: number; color: string }) => {
+  const fontSize = number > 99 ? 9 : number > 9 ? 11 : 12;
+  return (
+    <View style={styles.starContainer}>
+      <View style={[styles.starSquare, { borderColor: color }]} />
+      <View style={[styles.starSquare, { borderColor: color, transform: [{ rotate: '45deg' }] }]} />
+      <Text style={[styles.starText, { color, fontSize }]}>{number}</Text>
+    </View>
+  );
+};
+
+const SvgGradient = ({ colors }: { colors: string[] }) => (
+  <View style={StyleSheet.absoluteFill}>
+    <Svg height="100%" width="100%">
+      <Defs>
+        <SvgLinearGradient id="bannerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor={colors[0]} stopOpacity="1" />
+          <Stop offset="100%" stopColor={colors[1]} stopOpacity="1" />
+        </SvgLinearGradient>
+      </Defs>
+      <Rect width="100%" height="100%" fill="url(#bannerGrad)" />
+    </Svg>
+  </View>
+);
+
 export function SurahListScreen() {
   const navigation = useNavigation<NavigationProp>();
+  useScreenTime('QuranIndex');
   
   const [activeTab, setActiveTab] = useState<'surah' | 'juz'>('surah');
   const [surahs, setSurahs] = useState<Surah[]>([]);
@@ -70,6 +98,35 @@ export function SurahListScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const [globalLastRead, setGlobalLastRead] = useState<any>(null);
+  const [favoriteSurahs, setFavoriteSurahs] = useState<number[]>([]);
+  const [favoriteJuz, setFavoriteJuz] = useState<number[]>([]);
+
+  const loadFavorites = async () => {
+    try {
+      const favSurahs = await AsyncStorage.getItem('ummati_favorite_surahs');
+      const favJuz = await AsyncStorage.getItem('ummati_favorite_juz');
+      if (favSurahs) setFavoriteSurahs(JSON.parse(favSurahs));
+      if (favJuz) setFavoriteJuz(JSON.parse(favJuz));
+    } catch (e) {
+      console.warn('Failed to load favorites:', e);
+    }
+  };
+
+  const toggleFavoriteSurah = async (surahNumber: number) => {
+    const updated = favoriteSurahs.includes(surahNumber)
+      ? favoriteSurahs.filter(id => id !== surahNumber)
+      : [...favoriteSurahs, surahNumber];
+    setFavoriteSurahs(updated);
+    await AsyncStorage.setItem('ummati_favorite_surahs', JSON.stringify(updated));
+  };
+
+  const toggleFavoriteJuz = async (juzNumber: number) => {
+    const updated = favoriteJuz.includes(juzNumber)
+      ? favoriteJuz.filter(id => id !== juzNumber)
+      : [...favoriteJuz, juzNumber];
+    setFavoriteJuz(updated);
+    await AsyncStorage.setItem('ummati_favorite_juz', JSON.stringify(updated));
+  };
 
   const loadSurahList = async (forceRefresh = false) => {
     setLoading(true);
@@ -122,6 +179,7 @@ export function SurahListScreen() {
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       loadGlobalLastRead();
+      loadFavorites();
     });
     return unsubscribe;
   }, [navigation]);
@@ -208,22 +266,44 @@ export function SurahListScreen() {
           translationName: item.englishNameTranslation,
         })
       }
-      activeOpacity={0.8}
+      activeOpacity={0.85}
     >
       <View style={styles.cardLeft}>
-        <View style={styles.numberBadge}>
-          <Text style={styles.numberText}>{item.number}</Text>
-        </View>
+        <RubElHizb number={item.number} color={Theme.colors.primary} />
         <View style={styles.metaBox}>
           <Text style={styles.surahNameEng}>{item.englishName}</Text>
-          <Text style={styles.surahSubText}>
-            {item.revelationType === 'Meccan' ? '🕋' : '🕌'} • {item.numberOfAyahs} Ayahs
-          </Text>
+          <View style={styles.metaRow}>
+            <View style={[
+              styles.revelationBadge, 
+              item.revelationType === 'Meccan' ? styles.meccanBadge : styles.medinanBadge
+            ]}>
+              <Text style={[
+                styles.revelationText, 
+                item.revelationType === 'Meccan' ? styles.meccanText : styles.medinanText
+              ]}>
+                {item.revelationType === 'Meccan' ? '🕋 Meccan' : '🕌 Medinan'}
+              </Text>
+            </View>
+            <Text style={styles.surahSubText}>{item.numberOfAyahs} Ayahs</Text>
+          </View>
         </View>
       </View>
-      <View style={styles.cardRight}>
-        <Text style={styles.surahNameAr}>{item.name}</Text>
-        <Text style={styles.surahTransEng}>{item.englishNameTranslation}</Text>
+      <View style={styles.cardRightContainer}>
+        <View style={styles.cardRight}>
+          <Text style={styles.surahNameAr}>{item.name}</Text>
+          <Text style={styles.surahTransEng}>{item.englishNameTranslation}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.favIconBtn}
+          onPress={() => toggleFavoriteSurah(item.number)}
+          activeOpacity={0.7}
+        >
+          <Heart
+            color={favoriteSurahs.includes(item.number) ? '#EF4444' : Theme.colors.textMuted}
+            fill={favoriteSurahs.includes(item.number) ? '#EF4444' : 'none'}
+            size={18}
+          />
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -237,20 +317,31 @@ export function SurahListScreen() {
           juzName: item.name,
         })
       }
-      activeOpacity={0.8}
+      activeOpacity={0.85}
     >
       <View style={styles.cardLeft}>
-        <View style={styles.numberBadge}>
-          <Text style={styles.numberText}>{item.number}</Text>
-        </View>
+        <RubElHizb number={item.number} color={Theme.colors.accent} />
         <View style={styles.metaBox}>
           <Text style={styles.surahNameEng}>Para {item.number}</Text>
-          <Text style={styles.surahSubText}>{item.description}</Text>
+          <Text style={styles.surahSubText} numberOfLines={1}>{item.description}</Text>
         </View>
       </View>
-      <View style={styles.cardRight}>
-        <Text style={styles.surahNameAr}>{item.nameAr}</Text>
-        <Text style={styles.surahTransEng}>{item.name}</Text>
+      <View style={styles.cardRightContainer}>
+        <View style={styles.cardRight}>
+          <Text style={styles.surahNameAr}>{item.nameAr}</Text>
+          <Text style={styles.surahTransEng}>{item.name}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.favIconBtn}
+          onPress={() => toggleFavoriteJuz(item.number)}
+          activeOpacity={0.7}
+        >
+          <Heart
+            color={favoriteJuz.includes(item.number) ? '#EF4444' : Theme.colors.textMuted}
+            fill={favoriteJuz.includes(item.number) ? '#EF4444' : 'none'}
+            size={18}
+          />
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -266,6 +357,15 @@ export function SurahListScreen() {
       {/* Complete Quran Banner */}
       {globalLastRead ? (
         <View style={styles.premiumBanner}>
+          <SvgGradient colors={['#046C4E', '#0E9F6E']} />
+          <View style={styles.bannerDecoration}>
+            <Svg height="120" width="120" viewBox="0 0 100 100">
+              <Path
+                d="M80 20 A35 35 0 1 0 80 80 A30 30 0 1 1 80 20 Z"
+                fill="rgba(255, 255, 255, 0.08)"
+              />
+            </Svg>
+          </View>
           <View style={styles.bannerInfo}>
             <BookmarkCheck color="#FFFFFF" size={24} style={styles.bannerIcon} />
             <View>
@@ -289,6 +389,15 @@ export function SurahListScreen() {
         </View>
       ) : (
         <View style={styles.premiumBanner}>
+          <SvgGradient colors={['#046C4E', '#0E9F6E']} />
+          <View style={styles.bannerDecoration}>
+            <Svg height="120" width="120" viewBox="0 0 100 100">
+              <Path
+                d="M80 20 A35 35 0 1 0 80 80 A30 30 0 1 1 80 20 Z"
+                fill="rgba(255, 255, 255, 0.08)"
+              />
+            </Svg>
+          </View>
           <View style={styles.bannerInfo}>
             <BookOpen color="#FFFFFF" size={24} style={styles.bannerIcon} />
             <View>
@@ -302,6 +411,64 @@ export function SurahListScreen() {
         </View>
       )}
 
+      {/* Favorites Quick Shelf */}
+      {(favoriteSurahs.length > 0 || favoriteJuz.length > 0) && (
+        <View style={styles.favShelfContainer}>
+          <View style={styles.favShelfHeader}>
+            <Heart color="#EF4444" fill="#EF4444" size={14} />
+            <Text style={styles.favShelfTitle}>Favorites Quick Access</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.favShelfScroll}
+          >
+            {/* Render Surahs */}
+            {surahs
+              .filter((s) => favoriteSurahs.includes(s.number))
+              .map((s) => (
+                <TouchableOpacity
+                  key={`fav-s-${s.number}`}
+                  style={styles.favShelfCard}
+                  onPress={() =>
+                    navigateToQuran({
+                      surahNumber: s.number,
+                      surahName: s.englishName,
+                      translationName: s.englishNameTranslation,
+                    })
+                  }
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.favShelfCardAr} numberOfLines={1}>{s.name}</Text>
+                  <Text style={styles.favShelfCardEng} numberOfLines={1}>{s.englishName}</Text>
+                  <Text style={styles.favShelfCardSub}>Surah {s.number}</Text>
+                </TouchableOpacity>
+              ))}
+
+            {/* Render Paras (Juz) */}
+            {JUZ_LIST
+              .filter((j) => favoriteJuz.includes(j.number))
+              .map((j) => (
+                <TouchableOpacity
+                  key={`fav-j-${j.number}`}
+                  style={[styles.favShelfCard, { borderColor: 'rgba(245, 158, 11, 0.15)' }]}
+                  onPress={() =>
+                    navigateToQuran({
+                      juzNumber: j.number,
+                      juzName: j.name,
+                    })
+                  }
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.favShelfCardAr, { color: Theme.colors.accent }]} numberOfLines={1}>{j.nameAr}</Text>
+                  <Text style={styles.favShelfCardEng} numberOfLines={1}>Para {j.number}</Text>
+                  <Text style={styles.favShelfCardSub}>{j.name}</Text>
+                </TouchableOpacity>
+              ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Surah / Para Tab Selector */}
       <View style={styles.tabSelector}>
         <TouchableOpacity
@@ -309,6 +476,7 @@ export function SurahListScreen() {
           onPress={() => toggleTab('surah')}
           activeOpacity={0.8}
         >
+          <BookOpen color={activeTab === 'surah' ? '#FFFFFF' : Theme.colors.textSecondary} size={16} style={{ marginRight: 6 }} />
           <Text style={[styles.tabButtonText, activeTab === 'surah' ? styles.tabButtonTextActive : null]}>
             Surahs
           </Text>
@@ -318,6 +486,7 @@ export function SurahListScreen() {
           onPress={() => toggleTab('juz')}
           activeOpacity={0.8}
         >
+          <Bookmark color={activeTab === 'juz' ? '#FFFFFF' : Theme.colors.textSecondary} size={16} style={{ marginRight: 6 }} />
           <Text style={[styles.tabButtonText, activeTab === 'juz' ? styles.tabButtonTextActive : null]}>
             Paras (Juz)
           </Text>
@@ -395,12 +564,13 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 30,
+    fontWeight: '800',
     color: Theme.colors.text,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 14,
@@ -408,45 +578,52 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   premiumBanner: {
-    backgroundColor: Theme.colors.primary,
-    borderRadius: Theme.radius.lg,
-    padding: 16,
+    borderRadius: 16,
+    padding: 20,
     marginBottom: 20,
+    overflow: 'hidden',
     shadowColor: Theme.colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
     elevation: 4,
+  },
+  bannerDecoration: {
+    position: 'absolute',
+    right: -20,
+    top: -20,
+    opacity: 0.9,
   },
   bannerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
+    gap: 14,
+    marginBottom: 16,
+    zIndex: 2,
   },
   bannerIcon: {
     marginTop: 2,
   },
   bannerTitle: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   bannerDesc: {
     color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 11,
-    marginTop: 2,
-    lineHeight: 15,
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 16,
   },
   bannerLabel: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: 'rgba(255, 255, 255, 0.75)',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
   },
   bannerDetails: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: 'bold',
     marginTop: 2,
   },
@@ -454,12 +631,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    zIndex: 2,
   },
   bannerResumeBtn: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: Theme.radius.md,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   bannerResumeText: {
     color: Theme.colors.primary,
@@ -474,32 +657,45 @@ const styles = StyleSheet.create({
   },
   bannerStartBtn: {
     backgroundColor: '#FFFFFF',
-    borderRadius: Theme.radius.md,
-    paddingVertical: 10,
+    borderRadius: 10,
+    paddingVertical: 12,
     alignItems: 'center',
+    zIndex: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   bannerStartText: {
     color: Theme.colors.primary,
     fontWeight: 'bold',
-    fontSize: 13,
+    fontSize: 14,
   },
   tabSelector: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    borderRadius: Theme.radius.md,
+    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+    borderRadius: 14,
     padding: 4,
     marginBottom: 16,
-    borderColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: 'rgba(16, 185, 129, 0.08)',
     borderWidth: 1,
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 10,
+    flexDirection: 'row',
+    paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: Theme.radius.sm,
+    justifyContent: 'center',
+    borderRadius: 10,
   },
   tabButtonActive: {
     backgroundColor: Theme.colors.primary,
+    shadowColor: Theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   tabButtonText: {
     color: Theme.colors.textSecondary,
@@ -515,10 +711,15 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.surface,
     borderColor: Theme.colors.border,
     borderWidth: 1,
-    borderRadius: Theme.radius.md,
-    height: 50,
+    borderRadius: 14,
+    height: 52,
     paddingHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 1,
   },
   searchIcon: {
     marginRight: 10,
@@ -567,32 +768,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
+    borderColor: '#F1F5F9',
     borderWidth: 1,
-    borderRadius: Theme.radius.md,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
   cardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     flex: 1,
-  },
-  numberBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-  },
-  numberText: {
-    color: Theme.colors.primary,
-    fontWeight: 'bold',
-    fontSize: 14,
   },
   metaBox: {
     gap: 4,
@@ -603,9 +793,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  revelationBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  meccanBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+  },
+  medinanBadge: {
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+  },
+  revelationText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  meccanText: {
+    color: '#B45309',
+  },
+  medinanText: {
+    color: '#047857',
+  },
   surahSubText: {
     color: Theme.colors.textSecondary,
     fontSize: 11,
+    fontWeight: '500',
+  },
+  cardRightContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  favIconBtn: {
+    padding: 6,
   },
   cardRight: {
     alignItems: 'flex-end',
@@ -613,13 +839,14 @@ const styles = StyleSheet.create({
   },
   surahNameAr: {
     color: Theme.colors.primary,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     fontFamily: 'Georgia',
   },
   surahTransEng: {
     color: Theme.colors.textMuted,
     fontSize: 11,
+    fontWeight: '500',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -630,6 +857,76 @@ const styles = StyleSheet.create({
   emptyText: {
     color: Theme.colors.textMuted,
     fontSize: 14,
+    textAlign: 'center',
+  },
+  starContainer: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  starSquare: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderWidth: 1.5,
+    borderRadius: 5,
+  },
+  starText: {
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  favShelfContainer: {
+    marginBottom: 20,
+  },
+  favShelfHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  favShelfTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Theme.colors.textSecondary,
+  },
+  favShelfScroll: {
+    gap: 10,
+    paddingRight: 20,
+  },
+  favShelfCard: {
+    backgroundColor: Theme.colors.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.12)',
+    borderRadius: 14,
+    padding: 12,
+    width: 120,
+    alignItems: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  favShelfCardAr: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    fontFamily: 'Georgia',
+    color: Theme.colors.primary,
+    marginBottom: 4,
+  },
+  favShelfCardEng: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: Theme.colors.text,
+    textAlign: 'center',
+  },
+  favShelfCardSub: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: Theme.colors.textMuted,
+    marginTop: 2,
     textAlign: 'center',
   },
 });

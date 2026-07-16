@@ -47,10 +47,10 @@ export function LoginScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-        {/* Back Button */}
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Onboarding')}>
+        {/* Back to Register Button */}
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate('Register')}>
           <ArrowLeft color={Theme.colors.textSecondary} size={24} />
-          <Text style={styles.backButtonText}>Back</Text>
+          <Text style={styles.backButtonText}>Back to Register</Text>
         </TouchableOpacity>
 
         {/* Header */}
@@ -108,6 +108,11 @@ export function LoginScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Switch Auth Redirect Link */}
+        <TouchableOpacity style={styles.switchAuthBtn} onPress={() => navigation.navigate('Register')}>
+          <Text style={styles.switchAuthText}>Don't have an account yet? Register</Text>
+        </TouchableOpacity>
 
         {/* Help Note */}
         <Text style={styles.helpNote}>
@@ -212,5 +217,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 40,
     paddingHorizontal: 10,
+  },
+  switchAuthBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  switchAuthText: {
+    color: Theme.colors.primary,
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });

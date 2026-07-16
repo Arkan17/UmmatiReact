@@ -231,13 +231,15 @@ export default function RootNavigator() {
         {!onboardingCompleted ? (
           // Onboarding Flow
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-        ) : (
-          // Logged-in App Stack (Bypassing Login/Register screens)
+        ) : !isAuthenticated ? (
+          // Authentication Flow (Register first, switch to Login)
           <>
-            {/* Login and Register screens are bypassed/commented out */}
-            {/* <Stack.Screen name="Login" component={LoginScreen} /> */}
-            {/* <Stack.Screen name="Register" component={RegisterScreen} /> */}
-
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+          </>
+        ) : (
+          // Logged-in App Stack
+          <>
             <Stack.Screen name="MainApp" component={BottomTabNavigator} />
             <Stack.Screen name="QuranReading" component={QuranReadingScreen} />
             <Stack.Screen name="Qibla" component={QiblaScreen} />

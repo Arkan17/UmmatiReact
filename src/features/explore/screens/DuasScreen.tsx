@@ -1,17 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, TextInput } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { ArrowLeft, Volume2 } from 'lucide-react-native';
+import { ArrowLeft, Volume2, Search, X, Sparkles, BookOpen } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
+import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 export function DuasScreen() {
   const navigation = useNavigation();
+  useScreenTime('Duas');
   const { content } = useDynamicContent();
   const [duas, setDuas] = useState<any[]>(content.duas || []);
   const [activeCategory, setActiveCategory] = useState('All');
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const webViewRef = useRef<WebView<{}>>(null);
 
   // Sync with cached/local fallback data initially
@@ -56,9 +59,14 @@ export function DuasScreen() {
 
   const categories = ['All', ...new Set(duas.map(d => d.category))];
 
-  const filteredDuas = activeCategory === 'All' 
-    ? duas 
-    : duas.filter(d => d.category === activeCategory);
+  const filteredDuas = duas.filter(d => {
+    const matchesCat = activeCategory === 'All' || d.category === activeCategory;
+    const matchesSearch = !searchQuery.trim() || 
+      d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      d.transliteration.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      d.translation.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCat && matchesSearch;
+  });
 
   const handlePlayAudio = (id: number, url: string) => {
     if (playingId === id) {
@@ -95,6 +103,24 @@ export function DuasScreen() {
     </html>
   `;
 
+  const getCategoryLabel = (cat: string) => {
+    const emojis: Record<string, string> = {
+      All: '✨ All',
+      Morning: '🌅 Morning',
+      Evening: '🌙 Evening',
+      Food: '🍽️ Food',
+      Meal: '🍽️ Meal',
+      Travel: '✈️ Travel',
+      Traveling: '✈️ Travel',
+      Protection: '🛡️ Protection',
+      Waking: '👀 Waking Up',
+      Sleeping: '🛌 Sleeping',
+      Mosque: '🕌 Mosque',
+      Home: '🏠 Home'
+    };
+    return emojis[cat] || `🤲 ${cat}`;
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -122,6 +148,25 @@ export function DuasScreen() {
         />
       </View>
 
+      {/* Sleek Search Bar */}
+      <View style={styles.searchBarContainer}>
+        <View style={styles.searchBar}>
+          <Search color={Theme.colors.textMuted} size={18} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search duas, meanings, pronunciations..."
+            placeholderTextColor={Theme.colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
+              <X color={Theme.colors.textSecondary} size={16} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
       {/* Category Slider */}
       <View style={styles.catContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
@@ -140,7 +185,7 @@ export function DuasScreen() {
                   activeCategory === cat ? styles.activeCatText : null,
                 ]}
               >
-                {cat}
+                {getCategoryLabel(cat)}
               </Text>
             </TouchableOpacity>
           ))}
@@ -149,42 +194,64 @@ export function DuasScreen() {
 
       {/* Duas List */}
       <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-        {filteredDuas.map((item) => {
-          const isPlaying = playingId === item.id;
-          return (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View>
-                  <Text style={styles.cardCategory}>{item.category}</Text>
-                  <Text style={styles.cardTitleText}>{item.title}</Text>
+        {filteredDuas.length > 0 ? (
+          filteredDuas.map((item) => {
+            const isPlaying = playingId === item.id;
+            return (
+              <View key={item.id} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardTitleBox}>
+                    <View style={styles.cardCategoryBadge}>
+                      <Text style={styles.cardCategoryText}>{getCategoryLabel(item.category)}</Text>
+                    </View>
+                    <Text style={styles.cardTitleText}>{item.title}</Text>
+                  </View>
+                  {item.audio ? (
+                    <TouchableOpacity
+                      style={[styles.audioBtn, isPlaying ? styles.audioBtnPlaying : null]}
+                      onPress={() => handlePlayAudio(item.id, item.audio)}
+                      activeOpacity={0.8}
+                    >
+                      <Volume2 color={isPlaying ? Theme.colors.white : Theme.colors.primary} size={14} />
+                      <Text style={[styles.audioBtnText, isPlaying ? styles.audioBtnTextPlaying : null]}>
+                        {isPlaying ? 'Playing' : 'Listen'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-                {item.audio ? (
-                  <TouchableOpacity
-                    style={[styles.audioBtn, isPlaying ? styles.audioBtnPlaying : null]}
-                    onPress={() => handlePlayAudio(item.id, item.audio)}
-                  >
-                    <Volume2 color={isPlaying ? Theme.colors.white : Theme.colors.primary} size={16} />
-                    <Text style={[styles.audioBtnText, isPlaying ? styles.audioBtnTextPlaying : null]}>
-                      {isPlaying ? 'Playing' : 'Listen'}
-                    </Text>
-                  </TouchableOpacity>
+
+                {item.arabic ? (
+                  <Text style={styles.arabic}>{item.arabic}</Text>
+                ) : null}
+
+                {item.transliteration ? (
+                  <View style={styles.metaBox}>
+                    <View style={styles.metaLabelRow}>
+                      <BookOpen color={Theme.colors.accent} size={13} />
+                      <Text style={styles.metaLabel}>Pronunciation</Text>
+                    </View>
+                    <Text style={styles.metaText}>{item.transliteration}</Text>
+                  </View>
+                ) : null}
+
+                {item.translation ? (
+                  <View style={styles.metaBox}>
+                    <View style={styles.metaLabelRow}>
+                      <Sparkles color={Theme.colors.primary} size={13} />
+                      <Text style={styles.metaLabel}>Translation</Text>
+                    </View>
+                    <Text style={styles.metaText}>{item.translation}</Text>
+                  </View>
                 ) : null}
               </View>
-
-              <Text style={styles.arabic}>{item.arabic}</Text>
-
-              <View style={styles.metaBox}>
-                <Text style={styles.metaLabel}>Pronunciation</Text>
-                <Text style={styles.metaText}>{item.transliteration}</Text>
-              </View>
-
-              <View style={styles.metaBox}>
-                <Text style={styles.metaLabel}>Translation</Text>
-                <Text style={styles.metaText}>{item.translation}</Text>
-              </View>
-            </View>
-          );
-        })}
+            );
+          })
+        ) : (
+          <View style={styles.emptyContainer}>
+            <AlertCircle color={Theme.colors.textMuted} size={48} />
+            <Text style={styles.emptyText}>No duas matched your search.</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -216,6 +283,33 @@ const styles = StyleSheet.create({
   },
   placeholderWidth: {
     width: 40,
+  },
+  searchBarContainer: {
+    backgroundColor: Theme.colors.surface,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(35, 68, 50, 0.03)',
+    borderColor: Theme.colors.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    height: 44,
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: Theme.colors.text,
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  clearSearchBtn: {
+    padding: 4,
   },
   catContainer: {
     backgroundColor: Theme.colors.surface,
@@ -255,44 +349,60 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.surface,
     borderColor: Theme.colors.border,
     borderWidth: 1,
-    borderRadius: Theme.radius.lg,
-    padding: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: Theme.colors.primary,
+    borderRadius: 16,
+    padding: 18,
     marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(35, 68, 50, 0.2)',
-    paddingBottom: 12,
     marginBottom: 16,
   },
-  cardCategory: {
-    color: Theme.colors.accent,
-    fontSize: 10,
+  cardTitleBox: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  cardCategoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  cardCategoryText: {
+    color: Theme.colors.primary,
+    fontSize: 9,
     fontWeight: 'bold',
     textTransform: 'uppercase',
   },
   cardTitleText: {
     color: Theme.colors.text,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginTop: 2,
   },
   audioBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: Theme.radius.sm,
-    borderColor: Theme.colors.border,
+    borderRadius: 8,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
     borderWidth: 1,
-    gap: 4,
+    gap: 6,
   },
   audioBtnPlaying: {
     backgroundColor: Theme.colors.primary,
+    borderColor: Theme.colors.primary,
   },
   audioBtnText: {
     color: Theme.colors.primary,
@@ -303,27 +413,49 @@ const styles = StyleSheet.create({
     color: Theme.colors.white,
   },
   arabic: {
-    fontSize: 22,
-    color: Theme.colors.white,
+    fontSize: 23,
+    color: '#046C4E',
     fontFamily: 'Georgia',
-    lineHeight: 38,
+    lineHeight: 44,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 22,
+    paddingHorizontal: 6,
   },
   metaBox: {
-    marginBottom: 14,
-    gap: 4,
+    backgroundColor: 'rgba(35, 68, 50, 0.02)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderColor: 'rgba(35, 68, 50, 0.04)',
+    borderWidth: 1,
+  },
+  metaLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
   },
   metaLabel: {
-    color: Theme.colors.accent,
+    color: Theme.colors.accentDark,
     fontSize: 11,
     fontWeight: 'bold',
     textTransform: 'uppercase',
   },
   metaText: {
     color: Theme.colors.textSecondary,
-    fontSize: 13,
+    fontSize: 13.5,
     lineHeight: 20,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
+  },
+  emptyText: {
+    color: Theme.colors.textMuted,
+    fontSize: 14,
+    textAlign: 'center',
   },
   hiddenWebView: {
     width: 0,

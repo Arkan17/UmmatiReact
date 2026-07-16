@@ -4,6 +4,7 @@ import { Coordinates, CalculationMethod, PrayerTimes, Prayer, Madhab } from 'adh
 import { Bell, Clock, ChevronRight, Sun, Sunrise, Sunset, Moon, X } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../../core/hooks/useAuth';
+import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { useLocation } from '../../../core/hooks/useLocation';
 import { Theme } from '../../../core/theme/theme';
 import { supabase } from '../../../core/config/SupabaseClient';
@@ -41,6 +42,7 @@ function DomeIcon({ color, size }: { color: string; size: number }) {
 
 export function HomeScreen() {
   const { user } = useAuth();
+  useScreenTime('Home');
   const { latitude, longitude, loading: locationLoading, refreshLocation } = useLocation();
   const navigation = useNavigation<NavigationProp>();
   const { content, refresh: refreshDynamicContent } = useDynamicContent();
@@ -78,6 +80,33 @@ export function HomeScreen() {
   });
   const [savingChecklist, setSavingChecklist] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showPrayerPrompt, setShowPrayerPrompt] = useState(true);
+
+  const getCurrentPrayerName = useCallback(() => {
+    if (!prayerTimes) return null;
+    const now = new Date();
+    const current = prayerTimes.currentPrayer(now);
+    
+    const prayerNamesMap: Record<any, string> = {
+      [Prayer.Fajr]: 'Fajr',
+      [Prayer.Dhuhr]: 'Dhuhr',
+      [Prayer.Asr]: 'Asr',
+      [Prayer.Maghrib]: 'Maghrib',
+      [Prayer.Isha]: 'Isha',
+    };
+    return prayerNamesMap[current] || null;
+  }, [prayerTimes]);
+
+  const handlePromptAnswer = async (hasPrayed: boolean) => {
+    const currentName = getCurrentPrayerName();
+    if (!currentName) return;
+
+    if (hasPrayed) {
+      await togglePrayer(currentName);
+      Alert.alert('Alhamdulillah!', `You logged your ${currentName} prayer. Streak maintained!`);
+    }
+    setShowPrayerPrompt(false);
+  };
 
   // Verse of the Day state
   const [verse, setVerse] = useState(content.verses_of_the_day[0]);
@@ -188,7 +217,7 @@ export function HomeScreen() {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Attempt to upsert
+      // Attempt to upsert daily activity log
       const { error } = await supabase
         .from('user_activities')
         .upsert(
@@ -203,27 +232,56 @@ export function HomeScreen() {
 
       if (error) throw error;
 
-      // Update XP in user progress
+      // Calculate XP Change
       const xpChange = !prayersChecklist[prayerName] ? 10 : -10;
+
+      // Calculate Daily Streak Change (streak maintained if user logs at least 1 prayer daily)
+      const completedCount = Object.values(updatedChecklist).filter(Boolean).length;
+      let newStreak = streakCount;
+
+      if (completedCount === 1 && !prayersChecklist[prayerName]) {
+        // Just checked first prayer of today. Check if they logged any prayer yesterday.
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+        const { data: yesterdayLogs } = await supabase
+          .from('user_activities')
+          .select('details')
+          .eq('user_id', user.id)
+          .eq('activity_type', 'prayer')
+          .eq('activity_date', yesterdayStr)
+          .maybeSingle();
+
+        const completedYesterday = yesterdayLogs && Object.values(yesterdayLogs.details).some(Boolean);
+        if (completedYesterday) {
+          newStreak = streakCount + 1;
+        } else if (streakCount === 0) {
+          newStreak = 1;
+        }
+      } else if (completedCount === 0 && prayersChecklist[prayerName]) {
+        // Untoggled their only prayer today
+        newStreak = Math.max(0, streakCount - 1);
+      }
 
       const { data: progress } = await supabase
         .from('user_progress')
         .select('total_xp')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (progress) {
-        const newXp = Math.max(0, progress.total_xp + xpChange);
-        await supabase
-          .from('user_progress')
-          .update({
-            total_xp: newXp,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
+      const newXp = Math.max(0, (progress?.total_xp || 0) + xpChange);
+      await supabase
+        .from('user_progress')
+        .update({
+          total_xp: newXp,
+          streak_count: newStreak,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id);
 
-        setTotalXp(newXp);
-      }
+      setTotalXp(newXp);
+      setStreakCount(newStreak);
     } catch (e) {
       console.error('Failed to log prayer checklist activity:', e);
       // Revert in UI on fail
@@ -449,7 +507,36 @@ export function HomeScreen() {
         )}
       </View>
 
-      {/* 3. Today's Progress Card */}
+      {/* 3. Namaz Tracker Prompt Card */}
+      {(() => {
+        const currentPrayer = getCurrentPrayerName();
+        if (showPrayerPrompt && currentPrayer && !prayersChecklist[currentPrayer]) {
+          return (
+            <View style={styles.promptCard}>
+              <View style={styles.promptHeader}>
+                <View style={styles.promptIconCircle}>
+                  <Text style={styles.promptIconText}>🕌</Text>
+                </View>
+                <View style={styles.promptTextBox}>
+                  <Text style={styles.promptTitle}>Have you prayed {currentPrayer}?</Text>
+                  <Text style={styles.promptDesc}>Log your prayer to continue your streak and earn +10 XP!</Text>
+                </View>
+              </View>
+              <View style={styles.promptActionRow}>
+                <TouchableOpacity style={styles.promptYesBtn} onPress={() => handlePromptAnswer(true)} activeOpacity={0.8}>
+                  <Text style={styles.promptYesText}>Yes, Alhamdulillah</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.promptNoBtn} onPress={() => handlePromptAnswer(false)} activeOpacity={0.8}>
+                  <Text style={styles.promptNoText}>Not yet</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        }
+        return null;
+      })()}
+
+      {/* 4. Today's Progress Card */}
       <View style={styles.progressCard}>
         <View style={styles.progressHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -939,6 +1026,86 @@ const styles = StyleSheet.create({
   loaderText: {
     color: '#FFFFFF',
     fontSize: 14,
+  },
+  promptCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  promptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  promptIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFBEB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderColor: '#FEF3C7',
+    borderWidth: 1,
+  },
+  promptIconText: {
+    fontSize: 20,
+  },
+  promptTextBox: {
+    flex: 1,
+  },
+  promptTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  promptDesc: {
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 15,
+  },
+  promptActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  promptYesBtn: {
+    flex: 1.3,
+    backgroundColor: '#0E9F6E',
+    borderRadius: 12,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  promptYesText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  promptNoBtn: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: 12,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  promptNoText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
   },
   progressCard: {
     backgroundColor: '#FFFFFF',

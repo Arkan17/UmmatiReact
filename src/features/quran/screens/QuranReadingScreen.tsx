@@ -1,13 +1,15 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Platform, Alert, Dimensions, NativeSyntheticEvent, NativeScrollEvent, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Platform, Alert, Dimensions, NativeSyntheticEvent, NativeScrollEvent, ScrollView, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
-import { ArrowLeft, Play, Pause, Bookmark, BookmarkCheck, Volume2, AlertCircle, Settings, BookOpen, AlignLeft, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ArrowLeft, Play, Pause, Bookmark, BookmarkCheck, Volume2, AlertCircle, Settings, BookOpen, AlignLeft, ChevronLeft, ChevronRight, SkipForward, SkipBack } from 'lucide-react-native';
 import { useAuth } from '../../../core/hooks/useAuth';
+import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { Theme } from '../../../core/theme/theme';
 import { supabase } from '../../../core/config/SupabaseClient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../../core/navigation/RootNavigator';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from 'react-native-svg';
 
 interface Ayah {
   number: number;
@@ -61,10 +63,37 @@ const JUZ_NAMES = [
   'Ha Meem', 'Qala Fama Khatbukum', 'Qad Samiallah', 'Tabarakallazi', 'Amma Yatasa\'alun'
 ];
 
+const RubElHizb = ({ number, color }: { number: number; color: string }) => {
+  const fontSize = number > 99 ? 9 : number > 9 ? 11 : 12;
+  return (
+    <View style={styles.starContainer}>
+      <View style={[styles.starSquare, { borderColor: color }]} />
+      <View style={[styles.starSquare, { borderColor: color, transform: [{ rotate: '45deg' }] }]} />
+      <Text style={[styles.starText, { color, fontSize }]}>{number}</Text>
+    </View>
+  );
+};
+
+const SvgGradient = ({ colors }: { colors: string[] }) => (
+  <View style={StyleSheet.absoluteFill}>
+    <Svg height="100%" width="100%">
+      <Defs>
+        <SvgLinearGradient id="bannerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <Stop offset="0%" stopColor={colors[0]} stopOpacity="1" />
+          <Stop offset="100%" stopColor={colors[1]} stopOpacity="1" />
+        </SvgLinearGradient>
+      </Defs>
+      <Rect width="100%" height="100%" fill="url(#bannerGrad)" />
+    </Svg>
+  </View>
+);
+
 export function QuranReadingScreen() {
   const route = useRoute<ScreenRouteProp>();
   const navigation = useNavigation();
   const { user } = useAuth();
+  
+  useScreenTime('QuranReading');
   
   const { surahNumber, surahName, translationName, juzNumber, juzName } = route.params;
 
@@ -100,6 +129,7 @@ export function QuranReadingScreen() {
   // Audio Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingAyahId, setPlayingAyahId] = useState<number | null>(null);
+  const [playingProgress, setPlayingProgress] = useState<{ ayahId: number; pct: number } | null>(null);
   const webViewRef = useRef<WebView<{}>>(null);
   const flatListRef = useRef<FlatList>(null);
 
@@ -242,6 +272,47 @@ export function QuranReadingScreen() {
     }
   };
 
+  const saveLastReadPosition = async (ayah: Ayah) => {
+    try {
+      setLastReadAyah(ayah.numberInSurah);
+      
+      const lastReadKey = currentJuzNumber !== undefined
+        ? `ummati_last_read_juz_${currentJuzNumber}`
+        : `ummati_last_read_surah_${currentSurahNumber}`;
+      await AsyncStorage.setItem(lastReadKey, ayah.numberInSurah.toString());
+
+      // Save global last read info
+      const globalLastRead = currentJuzNumber !== undefined ? {
+        readingType: 'juz',
+        juzNumber: currentJuzNumber,
+        juzName: currentJuzName || JUZ_NAMES[currentJuzNumber - 1],
+        ayahNumber: ayah.numberInSurah,
+        surahName: ayah.surahName || currentSurahName,
+      } : {
+        readingType: 'surah',
+        surahNumber: currentSurahNumber,
+        surahName: currentSurahName,
+        translationName: currentTranslationName,
+        ayahNumber: ayah.numberInSurah,
+      };
+      await AsyncStorage.setItem('ummati_global_last_read', JSON.stringify(globalLastRead));
+
+      if (user) {
+        await supabase
+          .from('user_progress')
+          .update({
+            last_read_surah: currentJuzNumber !== undefined ? null : currentSurahNumber,
+            last_read_ayah: ayah.numberInSurah,
+            last_read_timestamp: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', user.id);
+      }
+    } catch (e) {
+      console.warn('Failed to save last read position:', e);
+    }
+  };
+
   const handleBookmarkAyah = async (ayah: Ayah) => {
     const isBookmarked = !!bookmarkedAyahs[ayah.number];
     const updated = {
@@ -252,41 +323,10 @@ export function QuranReadingScreen() {
     setBookmarkedAyahs(updated);
     await AsyncStorage.setItem('ummati_saved_bookmarks', JSON.stringify(updated));
 
-    setLastReadAyah(ayah.numberInSurah);
-    
-    const lastReadKey = currentJuzNumber !== undefined
-      ? `ummati_last_read_juz_${currentJuzNumber}`
-      : `ummati_last_read_surah_${currentSurahNumber}`;
-    await AsyncStorage.setItem(lastReadKey, ayah.numberInSurah.toString());
-
-    // Save global last read info
-    const globalLastRead = currentJuzNumber !== undefined ? {
-      readingType: 'juz',
-      juzNumber: currentJuzNumber,
-      juzName: currentJuzName || JUZ_NAMES[currentJuzNumber - 1],
-      ayahNumber: ayah.numberInSurah,
-      surahName: ayah.surahName || currentSurahName,
-    } : {
-      readingType: 'surah',
-      surahNumber: currentSurahNumber,
-      surahName: currentSurahName,
-      translationName: currentTranslationName,
-      ayahNumber: ayah.numberInSurah,
-    };
-    await AsyncStorage.setItem('ummati_global_last_read', JSON.stringify(globalLastRead));
+    await saveLastReadPosition(ayah);
 
     if (user) {
       try {
-        await supabase
-          .from('user_progress')
-          .update({
-            last_read_surah: currentJuzNumber !== undefined ? null : currentSurahNumber,
-            last_read_ayah: ayah.numberInSurah,
-            last_read_timestamp: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-
         const todayStr = new Date().toISOString().split('T')[0];
         await supabase.from('user_activities').insert({
           user_id: user.id,
@@ -318,7 +358,36 @@ export function QuranReadingScreen() {
     setPlayingAyahId(ayah.number);
     setIsPlaying(true);
     webViewRef.current?.injectJavaScript(`window.playAyahById(${ayah.number});`);
-  }, []);
+    saveLastReadPosition(ayah);
+  }, [currentJuzNumber, currentJuzName, currentSurahNumber, currentSurahName, currentTranslationName, user]);
+
+  const playNextAyah = () => {
+    if (ayahs.length === 0) return;
+    let nextIdx = 0;
+    if (playingAyahId !== null) {
+      const currentIdx = ayahs.findIndex(a => a.number === playingAyahId);
+      if (currentIdx !== -1 && currentIdx < ayahs.length - 1) {
+        nextIdx = currentIdx + 1;
+      } else {
+        return;
+      }
+    }
+    playSpecificAyah(ayahs[nextIdx]);
+  };
+
+  const playPrevAyah = () => {
+    if (ayahs.length === 0) return;
+    let prevIdx = 0;
+    if (playingAyahId !== null) {
+      const currentIdx = ayahs.findIndex(a => a.number === playingAyahId);
+      if (currentIdx > 0) {
+        prevIdx = currentIdx - 1;
+      } else {
+        return;
+      }
+    }
+    playSpecificAyah(ayahs[prevIdx]);
+  };
 
   // Sync playlist to WebView when ayahs load/change
   useEffect(() => {
@@ -405,6 +474,21 @@ export function QuranReadingScreen() {
 
           player.onerror = () => {
             window.ReactNativeWebView.postMessage("error");
+          };
+
+          let lastTimeSent = 0;
+          player.ontimeupdate = () => {
+            if (player.duration) {
+              const now = Date.now();
+              if (now - lastTimeSent > 150) {
+                lastTimeSent = now;
+                const pct = player.currentTime / player.duration;
+                const track = window.playlist[window.currentIndex];
+                if (track) {
+                  window.ReactNativeWebView.postMessage("progress:" + track.id + ":" + pct);
+                }
+              }
+            }
           };
 
           window.setPlaylist = (listJson) => {
@@ -580,26 +664,26 @@ export function QuranReadingScreen() {
 
     const lastReadBgStyle = isLastRead ? (theme === 'dark' ? styles.lastReadDark : styles.lastReadLight) : null;
     const playingBgStyle = isPlayingCurrent
-      ? { backgroundColor: theme === 'dark' ? 'rgba(212, 175, 55, 0.08)' : 'rgba(212, 175, 55, 0.04)' }
+      ? { backgroundColor: theme === 'dark' ? 'rgba(212, 175, 55, 0.08)' : 'rgba(212, 175, 55, 0.04)', borderColor: '#D4AF37' }
       : null;
-    const badgeBgStyle = theme === 'dark' ? styles.ayahBadgeDark : styles.ayahBadgeLight;
-    const activeBadgeColor = isPlayingCurrent ? '#D4AF37' : Theme.colors.primary;
+    const badgeColor = isPlayingCurrent ? '#D4AF37' : Theme.colors.primary;
 
     // Show Surah header inline when Surah shifts (or at index 0)
     const showSurahHeader = index === 0 || (item.surahNumber !== undefined && item.surahNumber !== ayahs[index - 1]?.surahNumber);
 
     return (
-      <View>
+      <View style={{ marginBottom: 12 }}>
         {showSurahHeader && (
-          <View style={[styles.surahHeaderBanner, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}>
-            <Text style={[styles.surahHeaderNameAr, { color: Theme.colors.primary }]}>
+          <View style={[styles.surahHeaderBanner, { borderColor: activeTheme.border }]}>
+            <SvgGradient colors={['#046C4E', '#0E9F6E']} />
+            <Text style={styles.surahHeaderNameAr}>
               {item.surahName ? `سورة ${item.surahName}` : `سورة ${currentSurahName}`}
             </Text>
-            <Text style={[styles.surahHeaderNameEng, { color: activeTheme.text }]}>
+            <Text style={styles.surahHeaderNameEng}>
               Surah {item.surahName || currentSurahName}
             </Text>
             {item.surahNumber !== 9 && currentSurahNumber !== 9 && (
-              <Text style={[styles.surahHeaderBismillah, { color: activeTheme.text }]}>
+              <Text style={styles.surahHeaderBismillah}>
                 بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
               </Text>
             )}
@@ -611,19 +695,13 @@ export function QuranReadingScreen() {
           activeOpacity={0.9}
           style={[
             styles.ayahContainer,
-            { borderBottomColor: activeTheme.border },
+            { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border },
             lastReadBgStyle,
             playingBgStyle
           ]}
         >
           <View style={styles.ayahHeader}>
-            <View style={[
-              styles.ayahBadge, 
-              { borderColor: isPlayingCurrent ? '#D4AF37' : activeTheme.border }, 
-              badgeBgStyle
-            ]}>
-              <Text style={[styles.ayahBadgeText, { color: activeBadgeColor }]}>{item.numberInSurah}</Text>
-            </View>
+            <RubElHizb number={item.numberInSurah} color={badgeColor} />
 
             <View style={styles.ayahActions}>
               {isLastRead ? <Text style={styles.lastReadLabel}>LAST READ</Text> : null}
@@ -640,10 +718,27 @@ export function QuranReadingScreen() {
 
           <Text style={[
             styles.textArabic, 
-            { fontSize: activeSizes.arabic },
-            isPlayingCurrent ? { color: '#D4AF37' } : { color: activeTheme.text }
+            { fontSize: activeSizes.arabic }
           ]}>
-            {item.textAr}
+            {(() => {
+              const words = item.textAr.split(' ');
+              const activeWordIndex = isPlayingCurrent && playingProgress && playingProgress.ayahId === item.number
+                ? Math.min(words.length - 1, Math.floor(playingProgress.pct * words.length))
+                : -1;
+              return words.map((word, idx) => {
+                const isPast = isPlayingCurrent && idx < activeWordIndex;
+                const isActive = isPlayingCurrent && idx === activeWordIndex;
+                let wordColor = activeTheme.text;
+                if (isActive) wordColor = '#F59E0B';
+                else if (isPast) wordColor = '#D4AF37';
+                
+                return (
+                  <Text key={idx} style={{ color: wordColor, fontWeight: isActive ? 'bold' : 'normal' }}>
+                    {word}{' '}
+                  </Text>
+                );
+              });
+            })()}
           </Text>
 
           <Text style={[
@@ -669,26 +764,26 @@ export function QuranReadingScreen() {
 
             const lastReadBgStyle = isLastRead ? (theme === 'dark' ? styles.lastReadDark : styles.lastReadLight) : null;
             const playingBgStyle = isPlayingCurrent
-              ? { backgroundColor: theme === 'dark' ? 'rgba(212, 175, 55, 0.08)' : 'rgba(212, 175, 55, 0.04)' }
+              ? { backgroundColor: theme === 'dark' ? 'rgba(212, 175, 55, 0.08)' : 'rgba(212, 175, 55, 0.04)', borderColor: '#D4AF37' }
               : null;
-            const badgeBgStyle = theme === 'dark' ? styles.ayahBadgeDark : styles.ayahBadgeLight;
-            const activeBadgeColor = isPlayingCurrent ? '#D4AF37' : Theme.colors.primary;
+            const badgeColor = isPlayingCurrent ? '#D4AF37' : Theme.colors.primary;
 
             // Show Surah header inline when Surah changes within paged block
             const showSurahHeader = ayah.numberInSurah === 1;
 
             return (
-              <View key={ayah.number}>
+              <View key={ayah.number} style={{ marginBottom: 12 }}>
                 {showSurahHeader && (
-                  <View style={[styles.surahHeaderBanner, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}>
-                    <Text style={[styles.surahHeaderNameAr, { color: Theme.colors.primary }]}>
+                  <View style={[styles.surahHeaderBanner, { borderColor: activeTheme.border }]}>
+                    <SvgGradient colors={['#046C4E', '#0E9F6E']} />
+                    <Text style={styles.surahHeaderNameAr}>
                       {ayah.surahName ? `سورة ${ayah.surahName}` : `سورة ${currentSurahName}`}
                     </Text>
-                    <Text style={[styles.surahHeaderNameEng, { color: activeTheme.text }]}>
+                    <Text style={styles.surahHeaderNameEng}>
                       Surah {ayah.surahName || currentSurahName}
                     </Text>
                     {ayah.surahNumber !== 9 && currentSurahNumber !== 9 && (
-                      <Text style={[styles.surahHeaderBismillah, { color: activeTheme.text }]}>
+                      <Text style={styles.surahHeaderBismillah}>
                         بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
                       </Text>
                     )}
@@ -700,19 +795,13 @@ export function QuranReadingScreen() {
                   activeOpacity={0.9}
                   style={[
                     styles.ayahContainerPaged,
-                    { borderColor: activeTheme.border },
+                    { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border },
                     lastReadBgStyle,
                     playingBgStyle
                   ]}
                 >
                   <View style={styles.ayahHeader}>
-                    <View style={[
-                      styles.ayahBadge, 
-                      { borderColor: isPlayingCurrent ? '#D4AF37' : activeTheme.border }, 
-                      badgeBgStyle
-                    ]}>
-                      <Text style={[styles.ayahBadgeText, { color: activeBadgeColor }]}>{ayah.numberInSurah}</Text>
-                    </View>
+                    <RubElHizb number={ayah.numberInSurah} color={badgeColor} />
                     <View style={styles.ayahActions}>
                       {isLastRead ? <Text style={styles.lastReadLabel}>LAST READ</Text> : null}
                       {isPlayingCurrent ? <Text style={[styles.lastReadLabel, { color: '#D4AF37', backgroundColor: 'rgba(212, 175, 55, 0.1)' }]}>PLAYING</Text> : null}
@@ -728,10 +817,27 @@ export function QuranReadingScreen() {
 
                   <Text style={[
                     styles.textArabic, 
-                    { fontSize: activeSizes.arabic },
-                    isPlayingCurrent ? { color: '#D4AF37' } : { color: activeTheme.text }
+                    { fontSize: activeSizes.arabic }
                   ]}>
-                    {ayah.textAr}
+                    {(() => {
+                      const words = ayah.textAr.split(' ');
+                      const activeWordIndex = isPlayingCurrent && playingProgress && playingProgress.ayahId === ayah.number
+                        ? Math.min(words.length - 1, Math.floor(playingProgress.pct * words.length))
+                        : -1;
+                      return words.map((word, idx) => {
+                        const isPast = isPlayingCurrent && idx < activeWordIndex;
+                        const isActive = isPlayingCurrent && idx === activeWordIndex;
+                        let wordColor = activeTheme.text;
+                        if (isActive) wordColor = '#F59E0B';
+                        else if (isPast) wordColor = '#D4AF37';
+                        
+                        return (
+                          <Text key={idx} style={{ color: wordColor, fontWeight: isActive ? 'bold' : 'normal' }}>
+                            {word}{' '}
+                          </Text>
+                        );
+                      });
+                    })()}
                   </Text>
                   <Text style={[
                     styles.textEnglish, 
@@ -815,12 +921,20 @@ export function QuranReadingScreen() {
             if (msg === 'ended') {
               setIsPlaying(false);
               setPlayingAyahId(null);
+              setPlayingProgress(null);
             } else if (msg.startsWith('playing:')) {
               const id = parseInt(msg.split(':')[1], 10);
               setPlayingAyahId(id);
               setIsPlaying(true);
+              setPlayingProgress({ ayahId: id, pct: 0 });
+            } else if (msg.startsWith('progress:')) {
+              const parts = msg.split(':');
+              const id = parseInt(parts[1], 10);
+              const pct = parseFloat(parts[2]);
+              setPlayingProgress({ ayahId: id, pct: pct });
             } else if (msg === 'error') {
               setIsPlaying(false);
+              setPlayingProgress(null);
               Alert.alert('Audio Error', 'Failed to stream recitation. Check connection.');
             }
           }}
@@ -845,150 +959,177 @@ export function QuranReadingScreen() {
         />
       </View>
 
-      {/* Dropdown Settings Panel */}
-      {showSettings && (
-        <View style={[styles.settingsPanel, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}>
-          {/* Theme Row */}
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Theme</Text>
-            <View style={styles.optionsRow}>
-              {(['light', 'sepia', 'dark'] as const).map((t) => (
-                <TouchableOpacity
-                  key={t}
-                  style={[
-                    styles.optionPill,
-                    theme === t ? styles.optionPillActive : { borderColor: activeTheme.border }
-                  ]}
-                  onPress={() => {
-                    setTheme(t);
-                    saveConfig('ummati_quran_theme', t);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.optionPillText,
-                    theme === t ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
-                  ]}>
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+      {/* Slide-up Bottom Sheet Settings Panel */}
+      <Modal
+        visible={showSettings}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowSettings(false)}
+        >
+          <View style={[styles.bottomSheet, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}>
+            {/* Drag Handle */}
+            <View style={styles.dragHandle} />
 
-          {/* Text Size Row */}
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Text Size</Text>
-            <View style={styles.optionsRow}>
-              {(['small', 'medium', 'large'] as const).map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  style={[
-                    styles.optionPill,
-                    textSize === s ? styles.optionPillActive : { borderColor: activeTheme.border }
-                  ]}
-                  onPress={() => {
-                    setTextSize(s);
-                    saveConfig('ummati_quran_text_size', s);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.optionPillText,
-                    textSize === s ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
-                  ]}>
-                    {s.charAt(0).toUpperCase() + s.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.bottomSheetHeader}>
+              <Text style={[styles.bottomSheetTitle, { color: activeTheme.text }]}>Display & Audio Settings</Text>
             </View>
-          </View>
 
-          {/* Translation Lang Row */}
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Translation</Text>
-            <View style={styles.optionsRow}>
-              {(['english', 'hindi'] as const).map((lang) => (
-                <TouchableOpacity
-                  key={lang}
-                  style={[
-                    styles.optionPill,
-                    translationLang === lang ? styles.optionPillActive : { borderColor: activeTheme.border }
-                  ]}
-                  onPress={() => {
-                    setTranslationLang(lang);
-                    saveConfig('ummati_quran_translation_lang', lang);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.optionPillText,
-                    translationLang === lang ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
-                  ]}>
-                    {lang === 'english' ? 'English' : 'Hindi'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* Theme Row */}
+            <View style={styles.settingRow}>
+              <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Theme</Text>
+              <View style={styles.optionsRow}>
+                {(['light', 'sepia', 'dark'] as const).map((t) => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[
+                      styles.optionPill,
+                      theme === t ? styles.optionPillActive : { borderColor: activeTheme.border }
+                    ]}
+                    onPress={() => {
+                      setTheme(t);
+                      saveConfig('ummati_quran_theme', t);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.optionPillText,
+                      theme === t ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
+                    ]}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
 
-          {/* Audio Recitation Mode Row */}
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Audio Recitation</Text>
-            <View style={styles.optionsRow}>
-              {(['arabic', 'hindi', 'both'] as const).map((mode) => (
-                <TouchableOpacity
-                  key={mode}
-                  style={[
-                    styles.optionPill,
-                    audioMode === mode ? styles.optionPillActive : { borderColor: activeTheme.border }
-                  ]}
-                  onPress={() => {
-                    setAudioMode(mode);
-                    saveConfig('ummati_quran_audio_mode', mode);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.optionPillText,
-                    audioMode === mode ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
-                  ]}>
-                    {mode === 'arabic' ? 'Arabic' : mode === 'hindi' ? 'Hindi Meaning' : 'Arabic + Hindi'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* Text Size Row */}
+            <View style={styles.settingRow}>
+              <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Text Size</Text>
+              <View style={styles.optionsRow}>
+                {(['small', 'medium', 'large'] as const).map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[
+                      styles.optionPill,
+                      textSize === s ? styles.optionPillActive : { borderColor: activeTheme.border }
+                    ]}
+                    onPress={() => {
+                      setTextSize(s);
+                      saveConfig('ummati_quran_text_size', s);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.optionPillText,
+                      textSize === s ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
+                    ]}>
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
 
-          {/* Playback Speed Row */}
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Recitation Speed</Text>
-            <View style={styles.optionsRow}>
-              {([1.0, 1.15, 1.25, 1.5] as const).map((rate) => (
-                <TouchableOpacity
-                  key={rate}
-                  style={[
-                    styles.optionPill,
-                    playbackRate === rate ? styles.optionPillActive : { borderColor: activeTheme.border }
-                  ]}
-                  onPress={() => {
-                    setPlaybackRateState(rate);
-                    saveConfig('ummati_quran_playback_rate', rate.toString());
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.optionPillText,
-                    playbackRate === rate ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
-                  ]}>
-                    {rate === 1.0 ? 'Normal' : `${rate}x`}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* Translation Lang Row */}
+            <View style={styles.settingRow}>
+              <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Translation</Text>
+              <View style={styles.optionsRow}>
+                {(['english', 'hindi'] as const).map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[
+                      styles.optionPill,
+                      translationLang === lang ? styles.optionPillActive : { borderColor: activeTheme.border }
+                    ]}
+                    onPress={() => {
+                      setTranslationLang(lang);
+                      saveConfig('ummati_quran_translation_lang', lang);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.optionPillText,
+                      translationLang === lang ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
+                    ]}>
+                      {lang === 'english' ? 'English' : 'Hindi'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
+
+            {/* Audio Recitation Mode Row */}
+            <View style={styles.settingRow}>
+              <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Audio Recitation</Text>
+              <View style={styles.optionsRow}>
+                {(['arabic', 'hindi', 'both'] as const).map((mode) => (
+                  <TouchableOpacity
+                    key={mode}
+                    style={[
+                      styles.optionPill,
+                      audioMode === mode ? styles.optionPillActive : { borderColor: activeTheme.border }
+                    ]}
+                    onPress={() => {
+                      setAudioMode(mode);
+                      saveConfig('ummati_quran_audio_mode', mode);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.optionPillText,
+                      audioMode === mode ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
+                    ]}>
+                      {mode === 'arabic' ? 'Arabic' : mode === 'hindi' ? 'Hindi Meaning' : 'Arabic + Hindi'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Playback Speed Row */}
+            <View style={styles.settingRow}>
+              <Text style={[styles.settingLabel, { color: activeTheme.textSecondary }]}>Recitation Speed</Text>
+              <View style={styles.optionsRow}>
+                {([1.0, 1.15, 1.25, 1.5] as const).map((rate) => (
+                  <TouchableOpacity
+                    key={rate}
+                    style={[
+                      styles.optionPill,
+                      playbackRate === rate ? styles.optionPillActive : { borderColor: activeTheme.border }
+                    ]}
+                    onPress={() => {
+                      setPlaybackRateState(rate);
+                      saveConfig('ummati_quran_playback_rate', rate.toString());
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.optionPillText,
+                      playbackRate === rate ? styles.optionPillTextActive : { color: activeTheme.textSecondary }
+                    ]}>
+                      {rate === 1.0 ? 'Normal' : `${rate}x`}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Close Button */}
+            <TouchableOpacity
+              style={styles.doneBtn}
+              onPress={() => setShowSettings(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.doneBtnText}>Close Settings</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-      )}
+        </TouchableOpacity>
+      </Modal>
 
       {/* Loader / Content */}
       {loading ? (
@@ -1030,6 +1171,7 @@ export function QuranReadingScreen() {
             renderItem={renderPageItem}
             keyExtractor={(_, index) => index.toString()}
             horizontal
+            inverted={true}
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             onScroll={handlePageScroll}
@@ -1042,26 +1184,26 @@ export function QuranReadingScreen() {
             }}
           />
 
-          {/* Left Paging Chevron */}
-          {((currentJuzNumber !== undefined && currentJuzNumber > 1) ||
-            (currentSurahNumber !== undefined && currentSurahNumber > 1) ||
-            currentPageIndex > 0) && (
+          {/* Left Paging Chevron (Goes Next in RTL) */}
+          {((currentJuzNumber !== undefined && currentJuzNumber < 30) ||
+            (currentSurahNumber !== undefined && currentSurahNumber < 114) ||
+            currentPageIndex < pages.length - 1) && (
             <TouchableOpacity
               style={[styles.floatingPageBtn, styles.leftPageBtn, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}
-              onPress={() => pageTurn('prev')}
+              onPress={() => pageTurn('next')}
               activeOpacity={0.85}
             >
               <ChevronLeft color={activeTheme.text} size={24} />
             </TouchableOpacity>
           )}
 
-          {/* Right Paging Chevron */}
-          {((currentJuzNumber !== undefined && currentJuzNumber < 30) ||
-            (currentSurahNumber !== undefined && currentSurahNumber < 114) ||
-            currentPageIndex < pages.length - 1) && (
+          {/* Right Paging Chevron (Goes Prev in RTL) */}
+          {((currentJuzNumber !== undefined && currentJuzNumber > 1) ||
+            (currentSurahNumber !== undefined && currentSurahNumber > 1) ||
+            currentPageIndex > 0) && (
             <TouchableOpacity
               style={[styles.floatingPageBtn, styles.rightPageBtn, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}
-              onPress={() => pageTurn('next')}
+              onPress={() => pageTurn('prev')}
               activeOpacity={0.85}
             >
               <ChevronRight color={activeTheme.text} size={24} />
@@ -1086,20 +1228,33 @@ export function QuranReadingScreen() {
         return (
           <View style={[styles.audioController, { backgroundColor: activeTheme.cardBg, borderColor: activeTheme.border }]}>
             <View style={styles.audioInfo}>
-              <Volume2 color={Theme.colors.accent} size={22} />
+              <Volume2 color={Theme.colors.accent} size={20} />
               <View style={styles.audioTextMeta}>
                 <Text style={[styles.audioTitle, { color: activeTheme.text }]} numberOfLines={1}>{audioTitleText}</Text>
                 <Text style={[styles.audioArtist, { color: activeTheme.textSecondary }]}>Sheikh Mishary Alafasy</Text>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.playBtn} onPress={toggleAudio} activeOpacity={0.85}>
-              {isPlaying ? (
-                <Pause color={Theme.colors.white} size={22} fill={Theme.colors.white} />
-              ) : (
-                <Play color={Theme.colors.white} size={22} fill={Theme.colors.white} style={styles.playIconOffset} />
-              )}
-            </TouchableOpacity>
+            <View style={styles.audioControlsGroup}>
+              {/* Skip Back */}
+              <TouchableOpacity style={styles.skipBtn} onPress={playPrevAyah} activeOpacity={0.7}>
+                <SkipBack color={activeTheme.text} size={18} fill={theme === 'dark' ? activeTheme.text : 'none'} />
+              </TouchableOpacity>
+
+              {/* Play / Pause */}
+              <TouchableOpacity style={styles.playBtn} onPress={toggleAudio} activeOpacity={0.85}>
+                {isPlaying ? (
+                  <Pause color={Theme.colors.white} size={20} fill={Theme.colors.white} />
+                ) : (
+                  <Play color={Theme.colors.white} size={20} fill={Theme.colors.white} style={styles.playIconOffset} />
+                )}
+              </TouchableOpacity>
+
+              {/* Skip Forward */}
+              <TouchableOpacity style={styles.skipBtn} onPress={playNextAyah} activeOpacity={0.7}>
+                <SkipForward color={activeTheme.text} size={18} fill={theme === 'dark' ? activeTheme.text : 'none'} />
+              </TouchableOpacity>
+            </View>
           </View>
         );
       })()}
@@ -1119,6 +1274,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 2,
   },
   backBtn: {
     padding: 8,
@@ -1143,15 +1303,13 @@ const styles = StyleSheet.create({
   headerIconBtn: {
     padding: 8,
   },
-  settingsPanel: {
-    padding: 16,
-    borderBottomWidth: 1,
-    gap: 12,
-  },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E2E8F0',
   },
   settingLabel: {
     fontSize: 13,
@@ -1165,7 +1323,7 @@ const styles = StyleSheet.create({
   optionPill: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: Theme.radius.sm,
+    borderRadius: 8,
     borderWidth: 1,
   },
   optionPillActive: {
@@ -1212,40 +1370,61 @@ const styles = StyleSheet.create({
   },
   surahHeaderBanner: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 24,
     paddingHorizontal: 16,
-    borderRadius: Theme.radius.md,
+    borderRadius: 16,
     borderWidth: 1,
     marginVertical: 16,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
   },
   surahHeaderNameAr: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     fontFamily: 'Georgia',
+    color: '#FFFFFF',
     marginBottom: 4,
+    zIndex: 2,
   },
   surahHeaderNameEng: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.9)',
     marginBottom: 12,
+    zIndex: 2,
   },
   surahHeaderBismillah: {
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: 'Georgia',
+    color: '#FFFFFF',
     marginTop: 4,
+    zIndex: 2,
   },
   ayahContainer: {
-    paddingVertical: 20,
-    borderBottomWidth: 1,
+    padding: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
   ayahContainerPaged: {
-    paddingVertical: 20,
-    borderBottomWidth: 1,
+    padding: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
   ayahHeader: {
     flexDirection: 'row',
@@ -1284,9 +1463,9 @@ const styles = StyleSheet.create({
   },
   textArabic: {
     fontFamily: 'Georgia',
-    lineHeight: 48,
+    lineHeight: 52,
     textAlign: 'right',
-    marginBottom: 12,
+    marginBottom: 14,
     letterSpacing: 0.5,
   },
   textEnglish: {
@@ -1343,28 +1522,31 @@ const styles = StyleSheet.create({
   audioController: {
     position: 'absolute',
     bottom: 16,
-    left: 20,
-    right: 20,
+    left: 16,
+    right: 16,
     borderWidth: 1,
-    borderRadius: Theme.radius.lg,
-    height: 64,
+    borderRadius: 20,
+    height: 68,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
   },
   audioInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
+    marginRight: 8,
   },
   audioTextMeta: {
     gap: 2,
+    flex: 1,
   },
   audioTitle: {
     fontSize: 13,
@@ -1373,13 +1555,26 @@ const styles = StyleSheet.create({
   audioArtist: {
     fontSize: 11,
   },
+  audioControlsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  skipBtn: {
+    padding: 8,
+  },
   playBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: Theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: Theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   playIconOffset: {
     marginLeft: 2,
@@ -1401,5 +1596,74 @@ const styles = StyleSheet.create({
   },
   ayahBadgeDark: {
     backgroundColor: '#334155',
+  },
+  starContainer: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  starSquare: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderWidth: 1.5,
+    borderRadius: 4,
+  },
+  starText: {
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  dragHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  bottomSheetHeader: {
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  bottomSheetTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  doneBtn: {
+    backgroundColor: Theme.colors.primary,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 20,
+    shadowColor: Theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  doneBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
 });

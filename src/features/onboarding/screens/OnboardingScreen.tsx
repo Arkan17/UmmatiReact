@@ -57,19 +57,8 @@ export function OnboardingScreen() {
   };
 
   const handleGetStarted = async () => {
-    // 1. Mark onboarding completed
+    // Mark onboarding completed. This will trigger RootNavigator to redirect to the Auth flow.
     await completeOnboarding();
-
-    // 2. Register guest session under the hood
-    try {
-      const randomId = Math.floor(100000 + Math.random() * 900000);
-      const guestUsername = `guest_${randomId}`;
-      const guestPassword = `Pass_${randomId}_Secure`;
-
-      await register(guestUsername, guestPassword);
-    } catch (e) {
-      console.warn('Background guest registration failed:', e);
-    }
   };
 
   return (

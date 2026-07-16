@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, TextInput, Dimensions } from 'react-native';
-import { Compass, BookOpen, Clock, Heart, PlayCircle, Calendar, Smile, Search, X } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, TextInput, Dimensions, ActivityIndicator } from 'react-native';
+import { Compass, BookOpen, Clock, Heart, PlayCircle, Calendar, Smile, Search, X, Award } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../core/navigation/RootNavigator';
+import { useAuth } from '../../../core/hooks/useAuth';
+import { useScreenTime } from '../../../core/hooks/useScreenTime';
+import { supabase } from '../../../core/config/SupabaseClient';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -13,8 +16,37 @@ const CARD_WIDTH = (SCREEN_WIDTH - 40 - 12) / 2; // 40 horizontal padding, 12 ga
 
 export function ExploreScreen() {
   const navigation = useNavigation<NavigationProp>();
+  const { user } = useAuth();
+  
+  useScreenTime('Explore');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
+  const [rankings, setRankings] = useState<any[]>([]);
+  const [rankingsLoading, setRankingsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRankings = async () => {
+      try {
+        setRankingsLoading(true);
+        const { data, error } = await supabase
+          .from('user_progress')
+          .select('user_id, total_xp, streak_count, profiles(username)')
+          .order('total_xp', { ascending: false })
+          .limit(10);
+
+        if (data && !error) {
+          setRankings(data);
+        }
+      } catch (err) {
+        console.warn('Failed to load leaderboard rankings:', err);
+      } finally {
+        setRankingsLoading(false);
+      }
+    };
+
+    fetchRankings();
+  }, []);
 
   const categories = [
     { id: 'all', label: 'All' },
@@ -257,6 +289,41 @@ export function ExploreScreen() {
                 </View>
               </View>
             )}
+
+            {/* Global Leaderboard Section */}
+            {rankingsLoading ? (
+              <View style={styles.leaderboardSection}>
+                <Text style={styles.sectionLabel}>👑 GLOBAL LEADERBOARD</Text>
+                <ActivityIndicator size="small" color={Theme.colors.primary} style={{ marginTop: 10 }} />
+              </View>
+            ) : rankings.length > 0 ? (
+              <View style={styles.leaderboardSection}>
+                <Text style={styles.sectionLabel}>👑 GLOBAL LEADERBOARD</Text>
+                <View style={styles.leaderboardCard}>
+                  {rankings.map((rank, index) => {
+                    const isMe = rank.user_id === user?.id;
+                    const rankNum = index + 1;
+                    const medal = rankNum === 1 ? '🥇' : rankNum === 2 ? '🥈' : rankNum === 3 ? '🥉' : `#${rankNum}`;
+                    const isLast = index === rankings.length - 1;
+
+                    return (
+                      <View key={rank.user_id} style={[styles.leaderboardRow, isMe && styles.leaderboardRowMe, isLast && { borderBottomWidth: 0 }]}>
+                        <View style={styles.leaderboardRowLeft}>
+                          <Text style={styles.rankNumText}>{medal}</Text>
+                          <View style={styles.rankInfoBox}>
+                            <Text style={[styles.rankUsername, isMe && styles.rankUsernameMe]}>
+                              {rank.profiles?.username || 'Ummati User'} {isMe && '(You)'}
+                            </Text>
+                            <Text style={styles.rankStreakText}>🔥 {rank.streak_count} day streak</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.rankXpValue}>{rank.total_xp} XP</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -536,6 +603,69 @@ const styles = StyleSheet.create({
     color: Theme.colors.white,
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  leaderboardSection: {
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  leaderboardCard: {
+    backgroundColor: Theme.colors.surface,
+    borderColor: Theme.colors.border,
+    borderWidth: 1,
+    borderRadius: Theme.radius.lg,
+    paddingVertical: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  leaderboardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.border,
+  },
+  leaderboardRowMe: {
+    backgroundColor: 'rgba(14, 159, 110, 0.06)',
+  },
+  leaderboardRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  rankNumText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Theme.colors.textSecondary,
+    width: 24,
+    textAlign: 'center',
+  },
+  rankInfoBox: {
+    flex: 1,
+  },
+  rankUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.colors.text,
+  },
+  rankUsernameMe: {
+    color: Theme.colors.primary,
+    fontWeight: 'bold',
+  },
+  rankStreakText: {
+    fontSize: 11,
+    color: Theme.colors.textMuted,
+    marginTop: 1,
+  },
+  rankXpValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Theme.colors.accentDark,
   },
 });
 
