@@ -7,7 +7,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../core/navigation/RootNavigator';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
-import { supabase } from '../../../core/config/SupabaseClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -29,24 +29,33 @@ export function ExploreScreen() {
     const fetchRankings = async () => {
       try {
         setRankingsLoading(true);
-        const { data, error } = await supabase
-          .from('user_progress')
-          .select('user_id, total_xp, streak_count, profiles(username)')
-          .order('total_xp', { ascending: false })
-          .limit(10);
+        const storedXp = await AsyncStorage.getItem('user_xp');
+        const storedStreak = await AsyncStorage.getItem('user_streak');
+        const username = await AsyncStorage.getItem('local_username') || 'You';
+        
+        const myXp = storedXp ? parseInt(storedXp, 10) : 0;
+        const myStreak = storedStreak ? parseInt(storedStreak, 10) : 0;
 
-        if (data && !error) {
-          setRankings(data);
-        }
+        const mockRankings = [
+          { user_id: '1', total_xp: 2450, streak_count: 45, profiles: { username: 'AbdurRahman' } },
+          { user_id: '2', total_xp: 1890, streak_count: 32, profiles: { username: 'Fatima_K' } },
+          { user_id: '3', total_xp: 1540, streak_count: 21, profiles: { username: 'Zayd_Ansari' } },
+          { user_id: 'local_user', total_xp: myXp, streak_count: myStreak, profiles: { username } },
+          { user_id: '4', total_xp: 980, streak_count: 15, profiles: { username: 'Aisha_99' } },
+          { user_id: '5', total_xp: 750, streak_count: 9, profiles: { username: 'Hamza_S' } },
+        ];
+
+        mockRankings.sort((a, b) => b.total_xp - a.total_xp);
+        setRankings(mockRankings);
       } catch (err) {
-        console.warn('Failed to load leaderboard rankings:', err);
+        console.warn('Failed to load local leaderboard rankings:', err);
       } finally {
         setRankingsLoading(false);
       }
     };
 
     fetchRankings();
-  }, []);
+  }, [user]);
 
   const categories = [
     { id: 'all', label: 'All' },

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from './useAuth';
-import { supabase } from '../config/SupabaseClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const useScreenTime = (screenName: string) => {
   const { user } = useAuth();
@@ -22,39 +22,27 @@ export const useScreenTime = (screenName: string) => {
 
         const logScreentime = async () => {
           try {
-            // Log to user_activities
-            await supabase.from('user_activities').insert({
-              user_id: user.id,
-              activity_type: 'screentime',
-              activity_date: todayStr,
-              details: {
-                screen: screenName,
-                duration_seconds: duration,
-                xp_earned: xpEarned
-              }
+            // Save screentime activity locally
+            const activityKey = `screentime_${todayStr}`;
+            const existing = await AsyncStorage.getItem(activityKey);
+            const list = existing ? JSON.parse(existing) : [];
+            list.push({
+              screen: screenName,
+              duration_seconds: duration,
+              xp_earned: xpEarned,
+              timestamp: new Date().toISOString()
             });
+            await AsyncStorage.setItem(activityKey, JSON.stringify(list));
 
-            // Update user's total XP in user_progress
+            // Update user's total XP locally
             if (xpEarned > 0) {
-              const { data: progress, error: progressErr } = await supabase
-                .from('user_progress')
-                .select('total_xp')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-              if (!progressErr) {
-                const newXp = (progress?.total_xp || 0) + xpEarned;
-                await supabase
-                  .from('user_progress')
-                  .update({
-                    total_xp: newXp,
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq('user_id', user.id);
-              }
+              const storedXp = await AsyncStorage.getItem('user_xp');
+              const currentXp = storedXp ? parseInt(storedXp, 10) : 0;
+              const newXp = currentXp + xpEarned;
+              await AsyncStorage.setItem('user_xp', newXp.toString());
             }
           } catch (err) {
-            console.warn(`[useScreenTime] Failed to log screen time for ${screenName}:`, err);
+            console.warn(`[useScreenTime] Failed to log screen time locally for ${screenName}:`, err);
           }
         };
 

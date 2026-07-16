@@ -157,52 +157,42 @@ export function HomeScreen() {
     }
   };
 
-  // Check progress in database
+  // Check progress in local storage
   const loadUserProgress = useCallback(async () => {
     if (!user) return;
     try {
-      const { data } = await supabase
-        .from('user_progress')
-        .select('total_xp, streak_count')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (data) {
-        if (data.total_xp !== undefined && data.total_xp !== null) setTotalXp(data.total_xp);
-        if (data.streak_count !== undefined && data.streak_count !== null) setStreakCount(data.streak_count);
-      }
+      const storedXp = await AsyncStorage.getItem('user_xp');
+      const storedStreak = await AsyncStorage.getItem('user_streak');
+      if (storedXp !== null) setTotalXp(parseInt(storedXp, 10));
+      if (storedStreak !== null) setStreakCount(parseInt(storedStreak, 10));
     } catch (e) {
-      console.warn('Failed to load user progress on Home:', e);
+      console.warn('Failed to load user progress locally:', e);
     }
   }, [user]);
 
-  // Check checklist in database for today
+  // Check checklist in local storage for today
   const loadChecklist = useCallback(async () => {
     if (!user) return;
     try {
       const todayStr = new Date().toISOString().split('T')[0];
-      const { data } = await supabase
-        .from('user_activities')
-        .select('details')
-        .eq('user_id', user.id)
-        .eq('activity_type', 'prayer')
-        .eq('activity_date', todayStr)
-        .maybeSingle();
-
-      if (data && data.details) {
+      const savedChecklist = await AsyncStorage.getItem(`prayer_checklist_${todayStr}`);
+      if (savedChecklist) {
+        setPrayersChecklist(JSON.parse(savedChecklist));
+      } else {
         setPrayersChecklist({
-          Fajr: !!data.details.Fajr,
-          Dhuhr: !!data.details.Dhuhr,
-          Asr: !!data.details.Asr,
-          Maghrib: !!data.details.Maghrib,
-          Isha: !!data.details.Isha,
+          Fajr: false,
+          Dhuhr: false,
+          Asr: false,
+          Maghrib: false,
+          Isha: false,
         });
       }
     } catch (e) {
-      console.warn('Failed to load daily prayer logs:', e);
+      console.warn('Failed to load daily prayer logs locally:', e);
     }
   }, [user]);
 
-  // Toggle checklist item and update Supabase
+  // Toggle checklist item and update local storage
   const togglePrayer = async (prayerName: string) => {
     if (!user) return;
 
@@ -217,20 +207,8 @@ export function HomeScreen() {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Attempt to upsert daily activity log
-      const { error } = await supabase
-        .from('user_activities')
-        .upsert(
-          {
-            user_id: user.id,
-            activity_type: 'prayer',
-            activity_date: todayStr,
-            details: updatedChecklist,
-          },
-          { onConflict: 'user_id,activity_type,activity_date' }
-        );
-
-      if (error) throw error;
+      // Save checklist locally
+      await AsyncStorage.setItem(`prayer_checklist_${todayStr}`, JSON.stringify(updatedChecklist));
 
       // Calculate XP Change
       const xpChange = !prayersChecklist[prayerName] ? 10 : -10;
@@ -245,15 +223,9 @@ export function HomeScreen() {
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-        const { data: yesterdayLogs } = await supabase
-          .from('user_activities')
-          .select('details')
-          .eq('user_id', user.id)
-          .eq('activity_type', 'prayer')
-          .eq('activity_date', yesterdayStr)
-          .maybeSingle();
+        const yesterdayChecklist = await AsyncStorage.getItem(`prayer_checklist_${yesterdayStr}`);
+        const completedYesterday = yesterdayChecklist && Object.values(JSON.parse(yesterdayChecklist)).some(Boolean);
 
-        const completedYesterday = yesterdayLogs && Object.values(yesterdayLogs.details).some(Boolean);
         if (completedYesterday) {
           newStreak = streakCount + 1;
         } else if (streakCount === 0) {
@@ -264,26 +236,17 @@ export function HomeScreen() {
         newStreak = Math.max(0, streakCount - 1);
       }
 
-      const { data: progress } = await supabase
-        .from('user_progress')
-        .select('total_xp')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const currentXp = totalXp;
+      const newXp = Math.max(0, currentXp + xpChange);
 
-      const newXp = Math.max(0, (progress?.total_xp || 0) + xpChange);
-      await supabase
-        .from('user_progress')
-        .update({
-          total_xp: newXp,
-          streak_count: newStreak,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', user.id);
+      // Save new progress values locally
+      await AsyncStorage.setItem('user_xp', newXp.toString());
+      await AsyncStorage.setItem('user_streak', newStreak.toString());
 
       setTotalXp(newXp);
       setStreakCount(newStreak);
     } catch (e) {
-      console.error('Failed to log prayer checklist activity:', e);
+      console.error('Failed to log prayer checklist activity locally:', e);
       // Revert in UI on fail
       setPrayersChecklist(prayersChecklist);
     } finally {

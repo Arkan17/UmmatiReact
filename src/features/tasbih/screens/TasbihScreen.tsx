@@ -251,18 +251,14 @@ export function TasbihScreen() {
     if (!user) return;
     setHistoryLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('tasbih_history')
-        .select('id, phrase, count, created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (data && !error) {
-        setHistory(data);
+      const savedHistory = await AsyncStorage.getItem('local_tasbih_history');
+      if (savedHistory) {
+        setHistory(JSON.parse(savedHistory).slice(0, 10));
+      } else {
+        setHistory([]);
       }
     } catch (e) {
-      console.warn('Failed to load Tasbih history:', e);
+      console.warn('Failed to load Tasbih history locally:', e);
     } finally {
       setHistoryLoading(false);
     }
@@ -271,57 +267,58 @@ export function TasbihScreen() {
   const saveDhikrRecord = async (phrase: string, recordCount: number) => {
     if (!user || recordCount === 0) return;
     try {
-      // 1. Insert history row
-      const { error } = await supabase.from('tasbih_history').insert({
-        user_id: user.id,
+      // 1. Award XP (+10 XP per completion)
+      const storedXp = await AsyncStorage.getItem('user_xp');
+      const currentXp = storedXp ? parseInt(storedXp, 10) : 0;
+      const newXp = currentXp + 10;
+      await AsyncStorage.setItem('user_xp', newXp.toString());
+
+      // 2. Save history locally
+      const generateLocalUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+      };
+      
+      const newRecord = {
+        id: generateLocalUUID(),
         phrase: phrase,
         count: recordCount,
-      });
+        created_at: new Date().toISOString(),
+      };
 
-      if (error) throw error;
+      const savedHistory = await AsyncStorage.getItem('local_tasbih_history');
+      const historyList = savedHistory ? JSON.parse(savedHistory) : [];
+      const updatedHistory = [newRecord, ...historyList].slice(0, 50);
+      await AsyncStorage.setItem('local_tasbih_history', JSON.stringify(updatedHistory));
 
-      // 2. Fetch and award XP (+10 XP per completion)
-      const { data: progress } = await supabase
-        .from('user_progress')
-        .select('total_xp')
-        .eq('user_id', user.id)
-        .single();
-
-      if (progress) {
-        await supabase
-          .from('user_progress')
-          .update({
-            total_xp: progress.total_xp + 10,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      }
-
-      // 3. Log user activity
+      // 3. Log user activity locally
       const todayStr = new Date().toISOString().split('T')[0];
-      await supabase.from('user_activities').insert({
-        user_id: user.id,
-        activity_type: 'tasbih',
-        activity_date: todayStr,
-        details: { phrase, count: recordCount }
+      const activityKey = `tasbih_activities_${todayStr}`;
+      const existingAct = await AsyncStorage.getItem(activityKey);
+      const actList = existingAct ? JSON.parse(existingAct) : [];
+      actList.push({
+        phrase,
+        count: recordCount,
+        timestamp: new Date().toISOString()
       });
+      await AsyncStorage.setItem(activityKey, JSON.stringify(actList));
 
       fetchHistory();
     } catch (e) {
-      console.warn('Failed to save Tasbih logs:', e);
+      console.warn('Failed to save Tasbih logs locally:', e);
     }
   };
 
   const clearHistory = async () => {
     if (!user) return;
     try {
-      await supabase
-        .from('tasbih_history')
-        .delete()
-        .eq('user_id', user.id);
+      await AsyncStorage.removeItem('local_tasbih_history');
       setHistory([]);
     } catch (e) {
-      console.warn('Failed to delete history:', e);
+      console.warn('Failed to delete history locally:', e);
     }
   };
 

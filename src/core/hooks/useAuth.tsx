@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../config/SupabaseClient';
 import { AppConfig } from '../config/AppConfig';
 
 export interface UserProfile {
   id: string;
   username: string;
+  gender: string;
   unique_app_id: string;
 }
 
@@ -14,8 +14,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   user: UserProfile | null;
   onboardingCompleted: boolean;
-  register: (username: string, pass: string) => Promise<{ success: boolean; error?: string; uniqueAppId?: string }>;
-  login: (username: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  register: (username: string, gender: string) => Promise<{ success: boolean; error?: string }>;
+  login: (username: string, pass: string, uniqueAppId: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
   checkSession: () => Promise<void>;
@@ -38,37 +38,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
 
-  // Check storage for onboarding and active Supabase session
+  // Check storage for onboarding and active local user session
   const checkSession = async () => {
     try {
       // 1. Check onboarding status
       const onboardingStatus = await AsyncStorage.getItem(AppConfig.storageKeys.ONBOARDING_COMPLETED);
       setOnboardingCompleted(onboardingStatus === 'true');
 
-      // 2. Check Supabase active session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session && session.user) {
-        // Retrieve profile details
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('id, username, unique_app_id')
-          .eq('id', session.user.id)
-          .single();
+      // 2. Check local user info
+      const username = await AsyncStorage.getItem('local_username');
+      const gender = await AsyncStorage.getItem('local_gender');
+      const uniqueAppId = await AsyncStorage.getItem('local_unique_app_id');
 
-        if (profile && !error) {
-          setUser({
-            id: profile.id,
-            username: profile.username,
-            unique_app_id: profile.unique_app_id,
-          });
-          setIsAuthenticated(true);
-        } else {
-          // If profile fetch fails, sign out
-          await supabase.auth.signOut();
-          setIsAuthenticated(false);
-          setUser(null);
-        }
+      if (username && uniqueAppId) {
+        setUser({
+          id: 'local_user',
+          username: username,
+          gender: gender || 'man',
+          unique_app_id: uniqueAppId,
+        });
+        setIsAuthenticated(true);
       } else {
         setIsAuthenticated(false);
         setUser(null);
@@ -93,116 +82,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (username: string, pass: string): Promise<{ success: boolean; error?: string; uniqueAppId?: string }> => {
+  const register = async (username: string, gender: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     try {
-      const sanitizedUsername = username.trim().toLowerCase();
-      const virtualEmail = `${sanitizedUsername}@ummati.app`;
+      const sanitizedUsername = username.trim();
       const uniqueAppId = generateUUID();
 
-      // Check if username is already taken in our profiles table
-      const { data: existingUser } = await supabase
-        .from('profiles')
-        .select('username')
-        .eq('username', sanitizedUsername)
-        .maybeSingle();
+      // Save user details locally in AsyncStorage
+      await AsyncStorage.setItem('local_username', sanitizedUsername);
+      await AsyncStorage.setItem('local_gender', gender);
+      await AsyncStorage.setItem('local_unique_app_id', uniqueAppId);
+      await AsyncStorage.setItem(AppConfig.storageKeys.ONBOARDING_COMPLETED, 'true');
 
-      if (existingUser) {
-        setIsLoading(false);
-        return { success: false, error: 'Username is already taken. Please choose another.' };
-      }
-
-      // Create authentication account in Supabase auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: virtualEmail,
-        password: pass,
-        options: {
-          data: {
-            username: sanitizedUsername,
-            unique_app_id: uniqueAppId,
-          },
-        },
+      setUser({
+        id: 'local_user',
+        username: sanitizedUsername,
+        gender: gender,
+        unique_app_id: uniqueAppId,
       });
-
-      if (authError) {
-        setIsLoading(false);
-        return { success: false, error: authError.message };
-      }
-
-      if (authData?.user) {
-        // Wait a brief moment for the database trigger to complete inserting the profile
-        await new Promise<void>((resolve) => setTimeout(() => resolve(), 1500));
-
-        // Fetch profile
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, username, unique_app_id')
-          .eq('id', authData.user.id)
-          .single();
-
-        if (profile && !profileError) {
-          setUser({
-            id: profile.id,
-            username: profile.username,
-            unique_app_id: profile.unique_app_id,
-          });
-          setIsAuthenticated(true);
-          setIsLoading(false);
-          return { success: true, uniqueAppId };
-        } else {
-          setIsLoading(false);
-          return { success: false, error: profileError?.message || 'Profile creation failed.' };
-        }
-      }
-
+      setOnboardingCompleted(true);
+      setIsAuthenticated(true);
       setIsLoading(false);
-      return { success: false, error: 'Failed to create user session.' };
+
+      return { success: true };
     } catch (e: any) {
       setIsLoading(false);
       return { success: false, error: e.message || 'An error occurred during registration.' };
     }
   };
 
-  const login = async (username: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (username: string, pass: string, uniqueAppId: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     try {
-      const sanitizedUsername = username.trim().toLowerCase();
-      const virtualEmail = `${sanitizedUsername}@ummati.app`;
+      const sanitizedUsername = username.trim();
+      const sanitizedId = uniqueAppId.trim().toLowerCase();
 
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: virtualEmail,
-        password: pass,
+      // Restoring/logging in locally
+      await AsyncStorage.setItem('local_username', sanitizedUsername);
+      await AsyncStorage.setItem('local_unique_app_id', sanitizedId);
+
+      setUser({
+        id: 'local_user',
+        username: sanitizedUsername,
+        gender: 'man', // default
+        unique_app_id: sanitizedId,
       });
-
-      if (authError) {
-        setIsLoading(false);
-        return { success: false, error: 'Invalid username or password.' };
-      }
-
-      if (authData?.user) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, username, unique_app_id')
-          .eq('id', authData.user.id)
-          .single();
-
-        if (profile && !profileError) {
-          setUser({
-            id: profile.id,
-            username: profile.username,
-            unique_app_id: profile.unique_app_id,
-          });
-          setIsAuthenticated(true);
-          setIsLoading(false);
-          return { success: true };
-        } else {
-          setIsLoading(false);
-          return { success: false, error: 'Failed to fetch user profile.' };
-        }
-      }
-
+      setIsAuthenticated(true);
       setIsLoading(false);
-      return { success: false, error: 'Failed to restore session.' };
+
+      return { success: true };
     } catch (e: any) {
       setIsLoading(false);
       return { success: false, error: e.message || 'An error occurred during login.' };
@@ -212,7 +140,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setIsLoading(true);
     try {
-      await supabase.auth.signOut();
+      await AsyncStorage.removeItem('local_username');
+      await AsyncStorage.removeItem('local_gender');
+      await AsyncStorage.removeItem('local_unique_app_id');
       setUser(null);
       setIsAuthenticated(false);
     } catch (e) {

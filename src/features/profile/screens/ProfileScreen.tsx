@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Clipboard,
 import { Copy, Check, Award, Flame, BookOpen, Clock } from 'lucide-react-native';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { Theme } from '../../../core/theme/theme';
-import { supabase } from '../../../core/config/SupabaseClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export function ProfileScreen() {
   const { user, logout } = useAuth();
@@ -29,41 +29,41 @@ export function ProfileScreen() {
     if (!user) return;
     setLoading(true);
     try {
-      // 1. Fetch user progress (XP, streaks, last read)
-      const { data: progress, error: progressError } = await supabase
-        .from('user_progress')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      // 1. Fetch user progress locally (XP, streaks, last read)
+      const storedXp = await AsyncStorage.getItem('user_xp');
+      const storedStreak = await AsyncStorage.getItem('user_streak');
+      const globalLastRead = await AsyncStorage.getItem('ummati_global_last_read');
 
-      if (progress && !progressError) {
-        setStreak(progress.streak_count || 0);
-        setTotalXp(progress.total_xp || 0);
-        setLastReadSurah(progress.last_read_surah || null);
-        setLastReadAyah(progress.last_read_ayah || null);
+      if (storedXp !== null) setTotalXp(parseInt(storedXp, 10));
+      if (storedStreak !== null) setStreak(parseInt(storedStreak, 10));
+      if (globalLastRead) {
+        const parsed = JSON.parse(globalLastRead);
+        setLastReadSurah(parsed.surahNumber || null);
+        setLastReadAyah(parsed.ayahNumber || null);
       }
 
-      // 2. Count total prayers logged
-      const { count: prayersCount, error: prayersError } = await supabase
-        .from('user_activities')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('activity_type', 'prayer');
+      // 2. Count total prayers logged locally
+      const keys = await AsyncStorage.getAllKeys();
+      const checklistKeys = keys.filter(k => k.startsWith('prayer_checklist_'));
+      let totalPrayers = 0;
+      for (const key of checklistKeys) {
+        const val = await AsyncStorage.getItem(key);
+        if (val) {
+          const checklist = JSON.parse(val);
+          totalPrayers += Object.values(checklist).filter(Boolean).length;
+        }
+      }
+      setTotalPrayersLogged(totalPrayers);
 
-      if (prayersError) throw prayersError;
-      setTotalPrayersLogged(prayersCount || 0);
-
-      // 3. Count total tasbih completions
-      const { data: tasbihData, error: tasbihError } = await supabase
-        .from('tasbih_history')
-        .select('count')
-        .eq('user_id', user.id);
-
-      if (tasbihError) throw tasbihError;
-      const sum = (tasbihData || []).reduce((acc, curr) => acc + curr.count, 0);
-      setTotalTasbihCompleted(sum);
+      // 3. Count total tasbih completions locally
+      const savedHistory = await AsyncStorage.getItem('local_tasbih_history');
+      if (savedHistory) {
+        const historyList = JSON.parse(savedHistory);
+        const sum = historyList.reduce((acc: number, curr: any) => acc + (curr.count || 0), 0);
+        setTotalTasbihCompleted(sum);
+      }
     } catch (e) {
-      console.warn('Failed to load profile stats:', e);
+      console.warn('Failed to load local profile stats:', e);
     } finally {
       setLoading(false);
     }
@@ -100,7 +100,9 @@ export function ProfileScreen() {
                 {user?.username?.charAt(0).toUpperCase() || 'U'}
               </Text>
             </View>
-            <Text style={styles.profileUsername}>{user?.username || 'Guest User'}</Text>
+            <Text style={styles.profileUsername}>
+              {user?.username || 'Guest User'} {user?.gender === 'woman' ? '🧕' : '🧔'}
+            </Text>
 
             <View style={styles.levelStatusBadge}>
               <Text style={styles.levelStatusText}>⭐ Level {currentLevel}</Text>

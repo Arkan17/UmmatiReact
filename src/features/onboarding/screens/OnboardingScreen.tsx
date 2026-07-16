@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, ScrollView, TouchableOpacity, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, ScrollView, TouchableOpacity, NativeScrollEvent, NativeSyntheticEvent, Platform, TextInput } from 'react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useAuth } from '../../../core/hooks/useAuth';
 
@@ -33,13 +33,21 @@ const slides = [
     type: 'description',
     description: 'Teach kids about Islamic stories, learn how to perform Wudu and Salah step-by-step, and test their knowledge with fun, reward-based quizzes.',
     icon: '👶'
+  },
+  {
+    title: 'Setup Your Profile',
+    type: 'profile_setup'
   }
 ];
 
 export function OnboardingScreen() {
-  const { completeOnboarding, register } = useAuth();
+  const { register } = useAuth();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Profile setup states
+  const [name, setName] = useState('');
+  const [gender, setGender] = useState<'man' | 'woman' | null>(null);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const scrollOffset = event.nativeEvent.contentOffset.x;
@@ -57,8 +65,8 @@ export function OnboardingScreen() {
   };
 
   const handleGetStarted = async () => {
-    // Mark onboarding completed. This will trigger RootNavigator to redirect to the Auth flow.
-    await completeOnboarding();
+    if (!name.trim() || !gender) return;
+    await register(name.trim(), gender);
   };
 
   return (
@@ -96,6 +104,7 @@ export function OnboardingScreen() {
           onScroll={handleScroll}
           scrollEventThrottle={16}
           style={styles.slider}
+          scrollEnabled={activeIndex < slides.length - 1 || (!!name.trim() && !!gender)}
         >
           {slides.map((slide, index) => (
             <View key={index} style={styles.slide}>
@@ -111,6 +120,54 @@ export function OnboardingScreen() {
                       <Text style={styles.bulletText}>{bullet.text}</Text>
                     </View>
                   ))}
+                </View>
+              ) : slide.type === 'profile_setup' ? (
+                <View style={styles.profileSetupContainer}>
+                  {/* Name Input */}
+                  <Text style={styles.label}>What should we call you?</Text>
+                  <TextInput
+                    style={styles.nameInput}
+                    placeholder="Enter your name..."
+                    placeholderTextColor="#94A3B8"
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                  />
+
+                  {/* Gender Selection */}
+                  <Text style={styles.label}>Select Gender</Text>
+                  <View style={styles.genderRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.genderCard,
+                        gender === 'man' ? styles.genderCardActive : null
+                      ]}
+                      onPress={() => setGender('man')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.genderEmoji}>👨</Text>
+                      <Text style={[
+                        styles.genderLabel,
+                        gender === 'man' ? styles.genderLabelActive : null
+                      ]}>Man</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.genderCard,
+                        gender === 'woman' ? styles.genderCardActive : null
+                      ]}
+                      onPress={() => setGender('woman')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.genderEmoji}>🧕</Text>
+                      <Text style={[
+                        styles.genderLabel,
+                        gender === 'woman' ? styles.genderLabelActive : null
+                      ]}>Woman</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               ) : (
                 <View style={styles.descContainer}>
@@ -143,7 +200,14 @@ export function OnboardingScreen() {
               <Text style={styles.nextButtonText}>Next</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.getStartedButton} onPress={handleGetStarted}>
+            <TouchableOpacity
+              style={[
+                styles.getStartedButton,
+                (!name.trim() || !gender) ? styles.getStartedButtonDisabled : null
+              ]}
+              onPress={handleGetStarted}
+              disabled={!name.trim() || !gender}
+            >
               <Text style={styles.getStartedButtonText}>Get Started</Text>
             </TouchableOpacity>
           )}
@@ -159,10 +223,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E6F4EA', // Light mint green tint background
   },
   graphicHeader: {
-    flex: 1.2,
+    flex: 1.0,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingTop: Platform.OS === 'ios' ? 40 : 20,
     position: 'relative',
   },
   ambientLight: {
@@ -175,24 +239,24 @@ const styles = StyleSheet.create({
     top: -50,
   },
   moonGraphic: {
-    marginBottom: 10,
+    marginBottom: 5,
     zIndex: 10,
   },
   moonEmoji: {
-    fontSize: 48,
+    fontSize: 40,
     color: Theme.colors.accent,
   },
   mosqueContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    height: 90,
+    height: 80,
     width: '100%',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   mosqueBase: {
-    width: 100,
-    height: 50,
+    width: 90,
+    height: 45,
     backgroundColor: '#0F9F68',
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
@@ -202,74 +266,74 @@ const styles = StyleSheet.create({
   },
   mosqueDomeMain: {
     position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#0E8F5D',
-    top: -30,
+    top: -25,
   },
   mosqueDomeLeft: {
     position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#10A96E',
-    left: -15,
+    left: -13,
     bottom: 0,
   },
   mosqueDomeRight: {
     position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#10A96E',
-    right: -15,
+    right: -13,
     bottom: 0,
   },
   mosqueGate: {
-    width: 24,
-    height: 30,
+    width: 20,
+    height: 26,
     backgroundColor: '#E6F4EA',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
   minaretLeft: {
-    width: 10,
-    height: 75,
+    width: 9,
+    height: 65,
     backgroundColor: '#0E8F5D',
-    marginRight: 6,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    marginRight: 5,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
   },
   minaretRight: {
-    width: 10,
-    height: 75,
+    width: 9,
+    height: 65,
     backgroundColor: '#0E8F5D',
-    marginLeft: 6,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
+    marginLeft: 5,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
   },
   brandTitle: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: '900',
     color: '#046C4E',
     letterSpacing: 2,
     textAlign: 'center',
   },
   brandSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#0E8F5D',
     fontWeight: 'bold',
     textAlign: 'center',
-    lineHeight: 18,
-    marginTop: 4,
+    lineHeight: 16,
+    marginTop: 2,
   },
   whiteCard: {
-    flex: 1,
+    flex: 1.4,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 36,
     borderTopRightRadius: 36,
-    paddingVertical: 24,
+    paddingVertical: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.06,
@@ -285,12 +349,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   slideTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     color: Theme.colors.text,
     textAlign: 'center',
-    lineHeight: 32,
-    marginBottom: 20,
+    lineHeight: 30,
+    marginBottom: 16,
   },
   bulletsContainer: {
     width: '100%',
@@ -299,7 +363,7 @@ const styles = StyleSheet.create({
   bulletRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
     gap: 12,
   },
   bulletIconBg: {
@@ -314,7 +378,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   bulletText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: Theme.colors.textSecondary,
     flex: 1,
@@ -325,24 +389,88 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   descIconCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#E6F4EA',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     borderColor: '#C2E7D9',
     borderWidth: 1,
   },
   descIconText: {
-    fontSize: 36,
+    fontSize: 32,
   },
   descText: {
-    fontSize: 15,
+    fontSize: 14,
     color: Theme.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
+  },
+  profileSetupContainer: {
+    width: '100%',
+    paddingHorizontal: 10,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Theme.colors.textSecondary,
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  nameInput: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: Theme.radius.md,
+    height: 48,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: Theme.colors.text,
+    marginBottom: 10,
+  },
+  genderRow: {
+    flexDirection: 'row',
+    gap: 16,
+    justifyContent: 'space-between',
+  },
+  genderCard: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: Theme.radius.lg,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  genderCardActive: {
+    backgroundColor: '#E6F4EA',
+    borderColor: '#0E9F6E',
+    borderWidth: 2,
+    shadowColor: '#0E9F6E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  genderEmoji: {
+    fontSize: 30,
+    marginBottom: 4,
+  },
+  genderLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  genderLabelActive: {
+    color: '#0E9F6E',
   },
   bottomActions: {
     paddingHorizontal: 24,
@@ -370,19 +498,19 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     borderWidth: 1,
     borderRadius: 28,
-    paddingVertical: 15,
+    paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   nextButtonText: {
     color: '#0E9F6E',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
   },
   getStartedButton: {
     backgroundColor: '#0E9F6E',
     borderRadius: 28,
-    paddingVertical: 15,
+    paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#0E9F6E',
@@ -391,9 +519,14 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
+  getStartedButtonDisabled: {
+    backgroundColor: '#94A3B8',
+    shadowColor: 'transparent',
+    elevation: 0,
+  },
   getStartedButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
   },
 });

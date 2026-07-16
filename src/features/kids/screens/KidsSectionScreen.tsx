@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from '
 import { BookOpen, Smile, Award, CheckCircle, XCircle, ArrowLeft, ArrowRight } from 'lucide-react-native';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { Theme } from '../../../core/theme/theme';
-import { supabase } from '../../../core/config/SupabaseClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 import { useNavigation } from '@react-navigation/native';
 
@@ -60,34 +60,29 @@ export function KidsSectionScreen() {
     if (!user) return;
     const earnedXp = score * 20; // 20 XP per correct answer
     try {
-      // 1. Fetch current progress
-      const { data: progress } = await supabase
-        .from('user_progress')
-        .select('total_xp')
-        .eq('user_id', user.id)
-        .single();
-        
-      if (progress) {
-        // 2. Award XP
-        await supabase
-          .from('user_progress')
-          .update({
-            total_xp: progress.total_xp + earnedXp,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      }
+      // 1. Get current XP from local storage
+      const storedXp = await AsyncStorage.getItem('user_xp');
+      const currentXp = storedXp ? parseInt(storedXp, 10) : 0;
+      const newXp = currentXp + earnedXp;
 
-      // 3. Log user activity
+      // 2. Save new XP locally
+      await AsyncStorage.setItem('user_xp', newXp.toString());
+
+      // 3. Save quiz activity locally
       const todayStr = new Date().toISOString().split('T')[0];
-      await supabase.from('user_activities').insert({
-        user_id: user.id,
-        activity_type: 'dua', // count as general progress logging
-        activity_date: todayStr,
-        details: { activity: 'kids_quiz', score: score, maxScore: quizQuestions.length, xpEarned: earnedXp }
+      const activityKey = `kids_activities_${todayStr}`;
+      const existing = await AsyncStorage.getItem(activityKey);
+      const list = existing ? JSON.parse(existing) : [];
+      list.push({
+        activity: 'kids_quiz',
+        score: score,
+        maxScore: quizQuestions.length,
+        xpEarned: earnedXp,
+        timestamp: new Date().toISOString()
       });
+      await AsyncStorage.setItem(activityKey, JSON.stringify(list));
     } catch (e) {
-      console.warn('Failed to save kids quiz XP:', e);
+      console.warn('Failed to save kids quiz XP locally:', e);
     }
   };
 

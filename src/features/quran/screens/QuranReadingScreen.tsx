@@ -296,20 +296,8 @@ export function QuranReadingScreen() {
         ayahNumber: ayah.numberInSurah,
       };
       await AsyncStorage.setItem('ummati_global_last_read', JSON.stringify(globalLastRead));
-
-      if (user) {
-        await supabase
-          .from('user_progress')
-          .update({
-            last_read_surah: currentJuzNumber !== undefined ? null : currentSurahNumber,
-            last_read_ayah: ayah.numberInSurah,
-            last_read_timestamp: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', user.id);
-      }
     } catch (e) {
-      console.warn('Failed to save last read position:', e);
+      console.warn('Failed to save last read position locally:', e);
     }
   };
 
@@ -325,23 +313,21 @@ export function QuranReadingScreen() {
 
     await saveLastReadPosition(ayah);
 
-    if (user) {
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
-        await supabase.from('user_activities').insert({
-          user_id: user.id,
-          activity_type: 'quran',
-          activity_date: todayStr,
-          details: {
-            juz: currentJuzNumber,
-            surah: currentSurahNumber || ayah.surahNumber,
-            ayah: ayah.numberInSurah,
-            action: 'bookmark_or_read'
-          }
-        });
-      } catch (e) {
-        console.warn('Failed to sync reading progression:', e);
-      }
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const activityKey = `quran_activities_${todayStr}`;
+      const existing = await AsyncStorage.getItem(activityKey);
+      const list = existing ? JSON.parse(existing) : [];
+      list.push({
+        juz: currentJuzNumber,
+        surah: currentSurahNumber || ayah.surahNumber,
+        ayah: ayah.numberInSurah,
+        action: 'bookmark_or_read',
+        timestamp: new Date().toISOString()
+      });
+      await AsyncStorage.setItem(activityKey, JSON.stringify(list));
+    } catch (e) {
+      console.warn('Failed to save reading progression locally:', e);
     }
   };
 

@@ -9,7 +9,7 @@ create extension if not exists "uuid-ossp";
 -- 1. Create Profiles Table (linked to auth.users)
 create table public.profiles (
   id uuid references auth.users on delete cascade primary key,
-  username text unique not null,
+  username text not null,
   unique_app_id uuid unique not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -39,7 +39,8 @@ create table public.user_activities (
   activity_type text not null, -- 'prayer', 'quran', 'tasbih', 'dua'
   activity_date date default current_date not null,
   details jsonb default '{}'::jsonb not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  unique (user_id, activity_type, activity_date)
 );
 
 -- Enable RLS for User Activities
@@ -114,15 +115,24 @@ create policy "Allow users to insert their own progress"
 create policy "Allow users to read their own activities" 
   on public.user_activities for select using (auth.uid() = user_id);
 
-create policy "Allow users to manage their own activities" 
-  on public.user_activities for all using (auth.uid() = user_id);
+create policy "Allow users to insert their own activities" 
+  on public.user_activities for insert with check (auth.uid() = user_id);
+
+create policy "Allow users to update their own activities" 
+  on public.user_activities for update using (auth.uid() = user_id);
+
+create policy "Allow users to delete their own activities" 
+  on public.user_activities for delete using (auth.uid() = user_id);
 
 -- Tasbih History Policies
 create policy "Allow users to read their own tasbih history" 
   on public.tasbih_history for select using (auth.uid() = user_id);
 
-create policy "Allow users to manage their own tasbih history" 
-  on public.tasbih_history for all using (auth.uid() = user_id);
+create policy "Allow users to insert their own tasbih history" 
+  on public.tasbih_history for insert with check (auth.uid() = user_id);
+
+create policy "Allow users to delete their own tasbih history" 
+  on public.tasbih_history for delete using (auth.uid() = user_id);
 
 -- Mosques Policies
 create policy "Allow public read access to mosques" 

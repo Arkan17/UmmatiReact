@@ -217,9 +217,8 @@ function SplashScreen() {
   );
 }
 
-// 3. Root Navigation Manager
 export default function RootNavigator() {
-  const { isLoading, isAuthenticated, onboardingCompleted } = useAuth();
+  const { isLoading, isAuthenticated } = useAuth();
 
   if (isLoading) {
     return <SplashScreen />;
@@ -228,15 +227,9 @@ export default function RootNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!onboardingCompleted ? (
+        {!isAuthenticated ? (
           // Onboarding Flow
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-        ) : !isAuthenticated ? (
-          // Authentication Flow (Register first, switch to Login)
-          <>
-            <Stack.Screen name="Register" component={RegisterScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-          </>
         ) : (
           // Logged-in App Stack
           <>

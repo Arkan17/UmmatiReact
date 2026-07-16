@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { User, Lock, ArrowLeft } from 'lucide-react-native';
+import { User, Lock, ArrowLeft, Key } from 'lucide-react-native';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
@@ -12,9 +12,9 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 export function LoginScreen() {
   const { login } = useAuth();
   const navigation = useNavigation<NavigationProp>();
-  
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [uniqueAppId, setUniqueAppId] = useState('');
   
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,8 +32,13 @@ export function LoginScreen() {
       return;
     }
 
+    if (!uniqueAppId.trim()) {
+      setErrorMsg('Please enter your Unique App ID.');
+      return;
+    }
+
     setLoading(true);
-    const result = await login(username.trim(), password);
+    const result = await login(username.trim(), password, uniqueAppId.trim());
     setLoading(false);
 
     if (!result.success) {
@@ -90,6 +95,19 @@ export function LoginScreen() {
               value={password}
               onChangeText={setPassword}
               secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <Key color={Theme.colors.textMuted} size={20} style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Unique App ID / Key"
+              placeholderTextColor={Theme.colors.textMuted}
+              value={uniqueAppId}
+              onChangeText={setUniqueAppId}
               autoCapitalize="none"
               autoCorrect={false}
             />
