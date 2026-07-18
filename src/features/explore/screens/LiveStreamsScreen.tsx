@@ -22,10 +22,10 @@ export function LiveStreamsScreen() {
 
   useEffect(() => {
     if (content.live_streams) {
-      setStreamUrls({
-        makkah: content.live_streams.makkah || streamUrls.makkah,
-        madina: content.live_streams.madina || streamUrls.madina,
-      });
+      setStreamUrls(prev => ({
+        makkah: content.live_streams.makkah || prev.makkah,
+        madina: content.live_streams.madina || prev.madina,
+      }));
     }
   }, [content]);
 

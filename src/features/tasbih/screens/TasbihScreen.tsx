@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Vibration, ActivityIndicator, Platform, ScrollView, Animated, TextInput, Modal } from 'react-native';
-import { ArrowLeft, RotateCcw, Volume2, VolumeX, Trash, Plus, Check, X, Sparkles, AlertCircle } from 'lucide-react-native';
+import { ArrowLeft, RotateCcw, Volume2, VolumeX, Trash, Plus, Check, X, Sparkles } from 'lucide-react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { Theme } from '../../../core/theme/theme';
-import { supabase } from '../../../core/config/SupabaseClient';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

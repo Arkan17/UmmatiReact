@@ -3,7 +3,7 @@ import { View, ActivityIndicator, Text, StyleSheet, TouchableOpacity, Platform }
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, BookOpen, Compass, User, HelpCircle, Users } from 'lucide-react-native';
+import { Home, BookOpen, User, Users } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import { useAuth } from '../hooks/useAuth';
@@ -11,9 +11,8 @@ import { Theme } from '../theme/theme';
 
 // Skeletons / Features imports (will be created in subsequent steps)
 import { OnboardingScreen } from '../../features/onboarding/screens/OnboardingScreen';
-import { LoginScreen } from '../../features/auth/screens/LoginScreen';
-import { RegisterScreen } from '../../features/auth/screens/RegisterScreen';
 import { HomeScreen } from '../../features/home/screens/HomeScreen';
+import { PrayerTimesScreen } from '../../features/home/screens/PrayerTimesScreen';
 import { SurahListScreen } from '../../features/quran/screens/SurahListScreen';
 import { QuranReadingScreen } from '../../features/quran/screens/QuranReadingScreen';
 import { QiblaScreen } from '../../features/qibla/screens/QiblaScreen';
@@ -50,6 +49,11 @@ export type RootStackParamList = {
   KidsSection: undefined;
 };
 
+export type HomeStackParamList = {
+  Home: undefined;
+  PrayerTimes: undefined;
+};
+
 export type TabParamList = {
   HomeTab: undefined;
   QuranTab: undefined;
@@ -60,7 +64,16 @@ export type TabParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 
+function HomeStackNavigator() {
+  return (
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+      <HomeStack.Screen name="Home" component={HomeScreen} />
+      <HomeStack.Screen name="PrayerTimes" component={PrayerTimesScreen} />
+    </HomeStack.Navigator>
+  );
+}
 // Custom Mosque outline icon for floating action button
 const MosqueSvg = ({ color, size }: { color: string; size: number }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -103,7 +116,7 @@ function ProfileTabIcon({ color, size }: { color: string; size: number }) {
 // Custom Tab Bar component to match the mockup exactly
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
-function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+function CustomTabBar({ state, descriptors: _descriptors, navigation }: BottomTabBarProps) {
   return (
     <View style={styles.tabBarContainer}>
       {state.routes.map((route, index) => {
@@ -122,6 +135,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
         };
 
         if (route.name === 'MosqueTab') {
+          const isActive = state.index === index;
           return (
             <TouchableOpacity
               key={route.key}
@@ -129,7 +143,10 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               style={styles.fabTabButton}
               activeOpacity={0.85}
             >
-              <View style={styles.fabCircle}>
+              <View style={[
+                styles.fabCircle,
+                isActive && styles.fabCircleActive
+              ]}>
                 <MosqueSvg color="#FFFFFF" size={26} />
               </View>
             </TouchableOpacity>
@@ -174,7 +191,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             </View>
             <Text style={[
               styles.tabBarLabel,
-              { color: tintColor }
+              { color: tintColor, fontWeight: isFocused ? 'bold' : '500' }
             ]}>
               {tabLabel}
             </Text>
@@ -194,7 +211,7 @@ function BottomTabNavigator() {
         headerShown: false,
       }}
     >
-      <Tab.Screen name="HomeTab" component={HomeScreen} />
+      <Tab.Screen name="HomeTab" component={HomeStackNavigator} />
       <Tab.Screen name="QuranTab" component={SurahListScreen} />
       <Tab.Screen name="MosqueTab" component={MosqueScreen} />
       <Tab.Screen name="CommunityTab" component={ExploreScreen} />
@@ -341,12 +358,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   iconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 30,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 4,
+    overflow: 'hidden',
   },
   iconWrapperActive: {
     backgroundColor: '#E6F4EA',
@@ -356,7 +374,6 @@ const styles = StyleSheet.create({
   },
   tabBarLabel: {
     fontSize: 10,
-    fontWeight: '700',
     marginTop: 1,
   },
   fabTabButton: {
@@ -364,5 +381,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
+  },
+  fabCircleActive: {
+    backgroundColor: '#046C4E',
+    borderColor: '#E6F4EA',
   },
 });

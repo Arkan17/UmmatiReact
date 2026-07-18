@@ -25,7 +25,7 @@ export function NaatsScreen() {
     if (content.naats && content.naats.length > 0 && naats.length === 0) {
       setNaats(content.naats);
     }
-  }, [content]);
+  }, [content, naats.length]);
 
   // Fetch live, popular Naats/Nasheeds from Archive.org Search API
   useEffect(() => {

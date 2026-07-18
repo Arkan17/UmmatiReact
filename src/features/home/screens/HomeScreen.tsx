@@ -1,13 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, RefreshControl, Image, Modal, Alert, Vibration } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, RefreshControl, Image, Alert, Vibration } from 'react-native';
 import { Coordinates, CalculationMethod, PrayerTimes, Prayer, Madhab } from 'adhan';
-import { Bell, Clock, ChevronRight, Sun, Sunrise, Sunset, Moon, X } from 'lucide-react-native';
+import { Clock, Sun, Sunrise, Sunset, Moon, Eye, Check } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../../core/hooks/useAuth';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { useLocation } from '../../../core/hooks/useLocation';
-import { Theme } from '../../../core/theme/theme';
-import { supabase } from '../../../core/config/SupabaseClient';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../core/navigation/RootNavigator';
@@ -16,26 +14,31 @@ import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-// Custom SVG Gradient Background (Simplified to solid background to prevent SVG rendering failures)
-function CardGradient({ colors, style, children }: { colors: string[], style?: any, children?: React.ReactNode }) {
+// Custom SVG Gradient Background for premium card styling
+function CardGradient({ colors, style, children }: { colors: readonly string[], style?: any, children?: React.ReactNode }) {
   return (
-    <View style={[{ overflow: 'hidden', backgroundColor: colors[1] || '#0E9F6E' }, style]}>
+    <View style={[{ overflow: 'hidden' }, style]}>
+      <Svg style={StyleSheet.absoluteFill}>
+        <Defs>
+          <SvgLinearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor={colors[0]} stopOpacity="1" />
+            <Stop offset="100%" stopColor={colors[1]} stopOpacity="1" />
+          </SvgLinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#cardGrad)" />
+      </Svg>
       {children}
     </View>
   );
 }
 
-// Custom Dome Outline SVG Icon
-function DomeIcon({ color, size }: { color: string; size: number }) {
+// Custom Lantern SVG Icon
+function LanternIcon({ color, size }: { color: string; size: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 3v2M12 5c-2 0-3.5 1.5-3.5 3.5V10h7V8.5c0-2-1.5-3.5-3.5-3.5ZM6 17c0-2.5 2-4.5 4.5-4.5h3c2.5 0 4.5 2 4.5 4.5v2H6v-2ZM4 19h16"
-        stroke={color}
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <Path d="M12 2v2M12 20v2M8 4h8v2H8V4ZM6 8h12v12H6V8Z" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+      <Path d="M8 8c0-2.5 1.5-4 4-4s4 1.5 4 4v12c0 1.5-1.5 2-4 2s-4-.5-4-2V8Z" stroke={color} strokeWidth={1.5} />
+      <Path d="M10 11h4M10 14h4" stroke={color} strokeWidth={1.2} />
     </Svg>
   );
 }
@@ -47,14 +50,9 @@ export function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { content, refresh: refreshDynamicContent } = useDynamicContent();
 
-  const [greeting, setGreeting] = useState('');
-  const [hijriDate, setHijriDate] = useState('');
   const [prayerTimes, setPrayerTimes] = useState<any>(null);
   const [nextPrayerName, setNextPrayerName] = useState('');
   const [countdownStr, setCountdownStr] = useState('00:00:00');
-
-  // Modal State
-  const [showTimesModal, setShowTimesModal] = useState(false);
 
   // Reminders State
   const [reminders, setReminders] = useState<Record<string, boolean>>({
@@ -67,8 +65,8 @@ export function HomeScreen() {
   });
 
   // Gamification progress states
-  const [totalXp, setTotalXp] = useState(1450); // Default placeholder
-  const [streakCount, setStreakCount] = useState(29); // Default placeholder
+  const [totalXp, setTotalXp] = useState(0);
+  const [streakCount, setStreakCount] = useState(0);
 
   // Checklist State
   const [prayersChecklist, setPrayersChecklist] = useState<Record<string, boolean>>({
@@ -78,58 +76,14 @@ export function HomeScreen() {
     Maghrib: false,
     Isha: false,
   });
-  const [savingChecklist, setSavingChecklist] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showPrayerPrompt, setShowPrayerPrompt] = useState(true);
 
-  const getCurrentPrayerName = useCallback(() => {
-    if (!prayerTimes) return null;
-    const now = new Date();
-    const current = prayerTimes.currentPrayer(now);
-    
-    const prayerNamesMap: Record<any, string> = {
-      [Prayer.Fajr]: 'Fajr',
-      [Prayer.Dhuhr]: 'Dhuhr',
-      [Prayer.Asr]: 'Asr',
-      [Prayer.Maghrib]: 'Maghrib',
-      [Prayer.Isha]: 'Isha',
-    };
-    return prayerNamesMap[current] || null;
-  }, [prayerTimes]);
 
-  const handlePromptAnswer = async (hasPrayed: boolean) => {
-    const currentName = getCurrentPrayerName();
-    if (!currentName) return;
-
-    if (hasPrayed) {
-      await togglePrayer(currentName);
-      Alert.alert('Alhamdulillah!', `You logged your ${currentName} prayer. Streak maintained!`);
-    }
-    setShowPrayerPrompt(false);
-  };
 
   // Verse of the Day state
   const [verse, setVerse] = useState(content.verses_of_the_day[0]);
 
-  // Tabular approximation of Hijri Date
-  const calculateHijriDate = (date: Date) => {
-    const jd = Math.floor(date.getTime() / 86400000) + 2440587.5;
-    const l = Math.floor(jd) - 1948440 + 10632;
-    const n = Math.floor((l - 1) / 10631);
-    let l_rest = l - 10631 * n + 354;
-    const j = Math.floor((10985 - l_rest) / 5316) * Math.floor((50 - l_rest) / 5600) + Math.floor(l_rest / 5600);
-    l_rest = l_rest - Math.floor((30 - j) / 15) * Math.floor((17719 * j) / 50) - Math.floor(j / 30) * 178121 + 30;
-    const h_y = 30 * n + j - 30;
-    const h_m = Math.floor((24 * l_rest) / 709);
-    const h_d = l_rest - Math.floor((709 * h_m) / 24);
 
-    const hijriMonths = [
-      'Muharram', 'Safar', 'Rabi\' al-Awwal', 'Rabi\' ath-Thani',
-      'Jumada al-Awwal', 'Jumada al-Thani', 'Rajab', 'Sha\'ban',
-      'Ramadan', 'Shawwal', 'Dhu al-Qi\'dah', 'Dhu al-Hijjah'
-    ];
-    return `${h_d} ${hijriMonths[h_m - 1]} ${h_y} AH`;
-  };
 
   // Load reminder settings
   const loadReminders = useCallback(async () => {
@@ -144,18 +98,7 @@ export function HomeScreen() {
   }, []);
 
   // Toggle reminder setting
-  const toggleReminder = async (prayerName: string) => {
-    const updated = {
-      ...reminders,
-      [prayerName]: !reminders[prayerName],
-    };
-    setReminders(updated);
-    try {
-      await AsyncStorage.setItem('prayer_reminders', JSON.stringify(updated));
-    } catch (e) {
-      console.warn('Failed to save reminder preference:', e);
-    }
-  };
+
 
   // Check progress in local storage
   const loadUserProgress = useCallback(async () => {
@@ -196,13 +139,32 @@ export function HomeScreen() {
   const togglePrayer = async (prayerName: string) => {
     if (!user) return;
 
+    if (prayersChecklist[prayerName]) {
+      Alert.alert('Already Logged', 'You have already logged this prayer for today.');
+      return;
+    }
+
+    if (prayerTimes) {
+      let prayerTime: Date | null = null;
+      if (prayerName === 'Fajr') prayerTime = prayerTimes.fajr;
+      if (prayerName === 'Dhuhr') prayerTime = prayerTimes.dhuhr;
+      if (prayerName === 'Asr') prayerTime = prayerTimes.asr;
+      if (prayerName === 'Maghrib') prayerTime = prayerTimes.maghrib;
+      if (prayerName === 'Isha') prayerTime = prayerTimes.isha;
+
+      if (prayerTime && new Date() < prayerTime) {
+        const timeStr = prayerTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        Alert.alert('Time Not Arrived', `You cannot log ${prayerName} yet. The prayer time starts at ${timeStr}.`);
+        return;
+      }
+    }
+
     const updatedChecklist = {
       ...prayersChecklist,
-      [prayerName]: !prayersChecklist[prayerName],
+      [prayerName]: true,
     };
 
     setPrayersChecklist(updatedChecklist);
-    setSavingChecklist(true);
 
     try {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -210,14 +172,11 @@ export function HomeScreen() {
       // Save checklist locally
       await AsyncStorage.setItem(`prayer_checklist_${todayStr}`, JSON.stringify(updatedChecklist));
 
-      // Calculate XP Change
-      const xpChange = !prayersChecklist[prayerName] ? 10 : -10;
-
-      // Calculate Daily Streak Change (streak maintained if user logs at least 1 prayer daily)
+      // Calculate Daily Streak Change (streak maintained/increased if user logs at least 1 prayer daily)
       const completedCount = Object.values(updatedChecklist).filter(Boolean).length;
       let newStreak = streakCount;
 
-      if (completedCount === 1 && !prayersChecklist[prayerName]) {
+      if (completedCount === 1) {
         // Just checked first prayer of today. Check if they logged any prayer yesterday.
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -228,16 +187,13 @@ export function HomeScreen() {
 
         if (completedYesterday) {
           newStreak = streakCount + 1;
-        } else if (streakCount === 0) {
+        } else {
           newStreak = 1;
         }
-      } else if (completedCount === 0 && prayersChecklist[prayerName]) {
-        // Untoggled their only prayer today
-        newStreak = Math.max(0, streakCount - 1);
       }
 
       const currentXp = totalXp;
-      const newXp = Math.max(0, currentXp + xpChange);
+      const newXp = currentXp + 10;
 
       // Save new progress values locally
       await AsyncStorage.setItem('user_xp', newXp.toString());
@@ -249,8 +205,6 @@ export function HomeScreen() {
       console.error('Failed to log prayer checklist activity locally:', e);
       // Revert in UI on fail
       setPrayersChecklist(prayersChecklist);
-    } finally {
-      setSavingChecklist(false);
     }
   };
 
@@ -264,20 +218,7 @@ export function HomeScreen() {
   };
 
   useEffect(() => {
-    // 1. Time-aware greeting
-    const hours = new Date().getHours();
-    if (hours < 12) {
-      setGreeting('Sabah Al-Khair (Good Morning)');
-    } else if (hours < 17) {
-      setGreeting('Masa Al-Khair (Good Afternoon)');
-    } else {
-      setGreeting('Assalamu Alaikum');
-    }
-
-    // 2. Hijri date
-    setHijriDate(calculateHijriDate(new Date()));
-
-    // 3. Verse of the Day selection
+    // 1. Verse of the Day selection
     const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000);
     const verses = content.verses_of_the_day || [];
     if (verses.length > 0) {
@@ -351,10 +292,10 @@ export function HomeScreen() {
         const isReminderActive = reminders[pName];
         if (isReminderActive) {
           const prayerEnum = pName === 'Fajr' ? Prayer.Fajr :
-                             pName === 'Sunrise' ? Prayer.Sunrise :
-                             pName === 'Dhuhr' ? Prayer.Dhuhr :
-                             pName === 'Asr' ? Prayer.Asr :
-                             pName === 'Maghrib' ? Prayer.Maghrib : Prayer.Isha;
+            pName === 'Sunrise' ? Prayer.Sunrise :
+              pName === 'Dhuhr' ? Prayer.Dhuhr :
+                pName === 'Asr' ? Prayer.Asr :
+                  pName === 'Maghrib' ? Prayer.Maghrib : Prayer.Isha;
 
           const pTime = times.timeForPrayer(prayerEnum);
           if (pTime) {
@@ -384,11 +325,11 @@ export function HomeScreen() {
     return () => clearInterval(interval);
   }, [latitude, longitude, locationLoading, reminders]);
 
-  // Format date helper (e.g. 5:12 PM)
-  const formatTime = (dateVal: Date | null) => {
-    if (!dateVal) return '--:--';
-    return dateVal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+
+
+  const currentLevel = Math.floor(totalXp / 500) + 1;
+  const xpInCurrentLevel = totalXp % 500;
+  const xpNeededForNextLevel = 500 - xpInCurrentLevel;
 
   return (
     <ScrollView
@@ -407,28 +348,27 @@ export function HomeScreen() {
         <View style={styles.headerLeft}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarInitial}>
-              {user?.username?.charAt(0).toUpperCase() || 'U'}
+              {user?.username?.charAt(0).toUpperCase() || 'A'}
             </Text>
           </View>
           <View style={styles.greetingsBox}>
-            <Text style={styles.greetingText}>Sabah Al-Khair 👋</Text>
-            <Text style={styles.usernameText}>{user?.username || 'Ummati'}</Text>
-            <Text style={styles.blessingText}>May Allah bless your day ✨</Text>
+            <Text style={styles.greetingText}>Assalamu Alaikum 👋</Text>
+            <Text style={styles.usernameText}>{user?.username || 'Arkan'}</Text>
+            <Text style={styles.blessingText}>May Allah bless your day 🌿</Text>
           </View>
         </View>
 
         <View style={styles.headerRight}>
-          <View style={styles.levelStatusBox}>
-            <View style={styles.levelBadge}>
-              <Text style={styles.levelBadgeText}>⭐ Level {1 + Math.floor(totalXp / 100)}</Text>
+          <View style={styles.levelCard}>
+            <View style={styles.levelInfo}>
+              <Text style={styles.levelBadgeText}>Level {currentLevel}</Text>
+              <Text style={styles.xpPointsValue}>{totalXp} XP</Text>
+              <Text style={styles.xpPointsLabel}>Next: {xpNeededForNextLevel} XP</Text>
             </View>
-            <Text style={styles.xpPointsValue}>{totalXp} XP</Text>
-            <Text style={styles.xpPointsLabel}>Total Points</Text>
+            <View style={styles.lanternBox}>
+              <LanternIcon color="#F59E0B" size={24} />
+            </View>
           </View>
-          <TouchableOpacity style={styles.bellButton} activeOpacity={0.8}>
-            <Bell color="#0F172A" size={20} fill="#0F172A" />
-            <View style={styles.bellBadgeDot} />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -440,23 +380,23 @@ export function HomeScreen() {
             <Text style={styles.loaderText}>Acquiring GPS coordinates...</Text>
           </View>
         ) : prayerTimes ? (
-          <CardGradient colors={['#55D2B3', '#0E9F6E']} style={styles.nextPrayerGradient}>
+          <CardGradient colors={['#044C34', '#0E9F6E']} style={styles.nextPrayerGradient}>
             <View style={styles.nextPrayerLeft}>
               <Text style={styles.nextPrayerLabel}>NEXT PRAYER</Text>
               <Text style={styles.nextPrayerNameText}>{nextPrayerName}</Text>
               <Text style={styles.nextPrayerCountdown}>{countdownStr}</Text>
-              <Text style={styles.countdownLabels}>HRS         MINS         SECS</Text>
-              
-              <TouchableOpacity 
-                style={styles.viewTimesButton} 
+              <Text style={styles.countdownLabels}>hrs         mins         secs</Text>
+
+              <TouchableOpacity
+                style={styles.viewTimesButton}
                 activeOpacity={0.9}
-                onPress={() => setShowTimesModal(true)}
+                onPress={() => navigation.navigate('PrayerTimes' as any)}
               >
-                <Clock color="#0E9F6E" size={13} style={{ marginRight: 4 }} />
+                <Eye color="#0E9F6E" size={13} style={{ marginRight: 6 }} />
                 <Text style={styles.viewTimesButtonText}>View Prayer Times</Text>
               </TouchableOpacity>
             </View>
-            
+
             <Image
               source={require('../../../assets/images/next_prayer_mosque.png')}
               style={styles.nextPrayerMosqueImage}
@@ -470,73 +410,65 @@ export function HomeScreen() {
         )}
       </View>
 
-      {/* 3. Namaz Tracker Prompt Card */}
-      {(() => {
-        const currentPrayer = getCurrentPrayerName();
-        if (showPrayerPrompt && currentPrayer && !prayersChecklist[currentPrayer]) {
+      {/* 3. Horizontal Prayer Slider */}
+      <View style={styles.prayerSliderContainer}>
+        {['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((prayer) => {
+          const isSelected = nextPrayerName.toLowerCase().includes(prayer.toLowerCase());
+          const isCompleted = prayersChecklist[prayer];
+
+          let IconComponent = Clock;
+          if (prayer === 'Fajr') IconComponent = Sunrise;
+          if (prayer === 'Dhuhr') IconComponent = Sun;
+          if (prayer === 'Asr') IconComponent = Clock;
+          if (prayer === 'Maghrib') IconComponent = Sunset;
+          if (prayer === 'Isha') IconComponent = Moon;
+
           return (
-            <View style={styles.promptCard}>
-              <View style={styles.promptHeader}>
-                <View style={styles.promptIconCircle}>
-                  <Text style={styles.promptIconText}>🕌</Text>
-                </View>
-                <View style={styles.promptTextBox}>
-                  <Text style={styles.promptTitle}>Have you prayed {currentPrayer}?</Text>
-                  <Text style={styles.promptDesc}>Log your prayer to continue your streak and earn +10 XP!</Text>
-                </View>
+            <TouchableOpacity
+              key={prayer}
+              style={[
+                styles.prayerSliderItem,
+                isSelected ? styles.prayerSliderItemActive : styles.prayerSliderItemInactive,
+                isCompleted && { borderColor: '#0E9F6E', backgroundColor: '#E6F4EA' }
+              ]}
+              onPress={() => togglePrayer(prayer)}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.prayerSliderIconBox,
+                isSelected ? styles.prayerSliderIconBoxActive : styles.prayerSliderIconBoxInactive,
+                isCompleted && { backgroundColor: '#0E9F6E' }
+              ]}>
+                {isCompleted ? (
+                  <Check color="#FFFFFF" size={16} />
+                ) : (
+                  <IconComponent color={isSelected ? '#FFFFFF' : '#94A3B8'} size={18} />
+                )}
               </View>
-              <View style={styles.promptActionRow}>
-                <TouchableOpacity style={styles.promptYesBtn} onPress={() => handlePromptAnswer(true)} activeOpacity={0.8}>
-                  <Text style={styles.promptYesText}>Yes, Alhamdulillah</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.promptNoBtn} onPress={() => handlePromptAnswer(false)} activeOpacity={0.8}>
-                  <Text style={styles.promptNoText}>Not yet</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+              <Text style={[
+                styles.prayerSliderLabel,
+                isSelected ? styles.prayerSliderLabelActive : styles.prayerSliderLabelInactive,
+                isCompleted && { color: '#046C4E', fontWeight: 'bold' }
+              ]}>
+                {prayer}
+              </Text>
+            </TouchableOpacity>
           );
-        }
-        return null;
-      })()}
-
-      {/* 4. Today's Progress Card */}
-      <View style={styles.progressCard}>
-        <View style={styles.progressHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={styles.progressTitleIndicator} />
-            <Text style={styles.progressTitle}>Today's Progress</Text>
-          </View>
-          <Text style={styles.progressCountText}>
-            {Object.values(prayersChecklist).filter(Boolean).length} / 5 Prayers Completed
-          </Text>
-        </View>
-
-        <View style={styles.prayerCirclesRow}>
-          {['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((prayer) => {
-            const completed = prayersChecklist[prayer];
-            return (
-              <TouchableOpacity
-                key={prayer}
-                style={styles.prayerCircleItem}
-                onPress={() => togglePrayer(prayer)}
-                activeOpacity={0.7}
-              >
-                <View style={[
-                  styles.prayerRing,
-                  completed ? styles.prayerRingCompleted : styles.prayerRingPending
-                ]}>
-                  <DomeIcon color={completed ? '#0E9F6E' : '#94A3B8'} size={22} />
-                </View>
-                <Text style={[styles.prayerCircleLabel, completed && styles.prayerCircleLabelActive]}>
-                  {prayer}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        })}
       </View>
 
-      {/* 4. Streak Indicator Row */}
+      {/* 4. Today's Progress Card */}
+      <View style={styles.todayProgressContainer}>
+        <View style={styles.todayProgressLeft}>
+          <View style={styles.todayProgressCapsule} />
+          <Text style={styles.todayProgressTitle}>Today's Progress</Text>
+        </View>
+        <Text style={styles.todayProgressCount}>
+          {Object.values(prayersChecklist).filter(Boolean).length}/5 Prayers Completed
+        </Text>
+      </View>
+
+      {/* 5. Streak Indicator Row */}
       <View style={styles.streakCard}>
         <View style={styles.streakLeft}>
           <View style={styles.flameCircle}>
@@ -548,10 +480,10 @@ export function HomeScreen() {
           </View>
           <View style={styles.streakInfo}>
             <Text style={styles.streakTitleText}>{streakCount} Day Streak 🔥</Text>
-            <Text style={styles.streakSubtitleText}>Don't break it!</Text>
+            <Text style={styles.streakSubtitleText}>Keep it up!</Text>
           </View>
         </View>
-        
+
         <View style={styles.streakRight}>
           <View style={styles.streakBarRow}>
             {[1, 2, 3, 4, 5, 6, 7].map((day, idx) => (
@@ -572,108 +504,78 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {/* 5. Spiritual Tools Grid */}
+      {/* 6. Spiritual Tools Grid */}
       <View style={styles.toolsSection}>
         <View style={styles.toolsGrid}>
           {/* Quran */}
-          <TouchableOpacity 
-            style={styles.toolGridItem} 
+          <TouchableOpacity
+            style={styles.toolGridItem}
             onPress={() => navigation.navigate('QuranTab' as any)}
             activeOpacity={0.8}
           >
             <Image source={require('../../../assets/images/quran_icon.png')} style={styles.toolIconImage} resizeMode="contain" />
-            <View style={styles.toolInfoBox}>
-              <Text style={styles.toolLabel}>Quran</Text>
-              <Text style={styles.toolSubLabel}>Read & Reflect</Text>
-            </View>
-            <View style={styles.toolCaret}>
-              <ChevronRight color="#94A3B8" size={10} />
-            </View>
+            <Text style={styles.toolLabel}>Quran</Text>
+            <Text style={styles.toolSubLabel}>Read & Reflect</Text>
           </TouchableOpacity>
 
           {/* Qibla */}
-          <TouchableOpacity 
-            style={styles.toolGridItem} 
+          <TouchableOpacity
+            style={styles.toolGridItem}
             onPress={() => navigation.navigate('Qibla')}
             activeOpacity={0.8}
           >
             <Image source={require('../../../assets/images/qibla_icon.png')} style={styles.toolIconImage} resizeMode="contain" />
-            <View style={styles.toolInfoBox}>
-              <Text style={styles.toolLabel}>Qibla</Text>
-              <Text style={styles.toolSubLabel}>Find Direction</Text>
-            </View>
-            <View style={styles.toolCaret}>
-              <ChevronRight color="#94A3B8" size={10} />
-            </View>
+            <Text style={styles.toolLabel}>Qibla</Text>
+            <Text style={styles.toolSubLabel}>Find Direction</Text>
           </TouchableOpacity>
 
           {/* Tasbih */}
-          <TouchableOpacity 
-            style={styles.toolGridItem} 
+          <TouchableOpacity
+            style={styles.toolGridItem}
             onPress={() => navigation.navigate('Tasbih')}
             activeOpacity={0.8}
           >
             <Image source={require('../../../assets/images/tasbih_icon.png')} style={styles.toolIconImage} resizeMode="contain" />
-            <View style={styles.toolInfoBox}>
-              <Text style={styles.toolLabel}>Tasbih</Text>
-              <Text style={styles.toolSubLabel}>Dhikr Counter</Text>
-            </View>
-            <View style={styles.toolCaret}>
-              <ChevronRight color="#94A3B8" size={10} />
-            </View>
+            <Text style={styles.toolLabel}>Tasbih</Text>
+            <Text style={styles.toolSubLabel}>Dhikr Counter</Text>
           </TouchableOpacity>
 
           {/* Dua */}
-          <TouchableOpacity 
-            style={styles.toolGridItem} 
+          <TouchableOpacity
+            style={styles.toolGridItem}
             onPress={() => navigation.navigate('Duas' as any)}
             activeOpacity={0.8}
           >
             <Image source={require('../../../assets/images/dua_icon.png')} style={styles.toolIconImage} resizeMode="contain" />
-            <View style={styles.toolInfoBox}>
-              <Text style={styles.toolLabel}>Dua</Text>
-              <Text style={styles.toolSubLabel}>Supplications</Text>
-            </View>
-            <View style={styles.toolCaret}>
-              <ChevronRight color="#94A3B8" size={10} />
-            </View>
+            <Text style={styles.toolLabel}>Dua</Text>
+            <Text style={styles.toolSubLabel}>Supplications</Text>
           </TouchableOpacity>
 
           {/* Mosques */}
-          <TouchableOpacity 
-            style={styles.toolGridItem} 
+          <TouchableOpacity
+            style={styles.toolGridItem}
             onPress={() => navigation.navigate('Mosque')}
             activeOpacity={0.8}
           >
             <Image source={require('../../../assets/images/mosques_icon.png')} style={styles.toolIconImage} resizeMode="contain" />
-            <View style={styles.toolInfoBox}>
-              <Text style={styles.toolLabel}>Mosques</Text>
-              <Text style={styles.toolSubLabel}>Find Nearby</Text>
-            </View>
-            <View style={styles.toolCaret}>
-              <ChevronRight color="#94A3B8" size={10} />
-            </View>
+            <Text style={styles.toolLabel}>Mosques</Text>
+            <Text style={styles.toolSubLabel}>Find Nearby</Text>
           </TouchableOpacity>
 
           {/* Explore */}
-          <TouchableOpacity 
-            style={styles.toolGridItem} 
+          <TouchableOpacity
+            style={styles.toolGridItem}
             onPress={() => navigation.navigate('CommunityTab' as any)}
             activeOpacity={0.8}
           >
             <Image source={require('../../../assets/images/explore_icon.png')} style={styles.toolIconImage} resizeMode="contain" />
-            <View style={styles.toolInfoBox}>
-              <Text style={styles.toolLabel}>Explore</Text>
-              <Text style={styles.toolSubLabel}>Islamic Content</Text>
-            </View>
-            <View style={styles.toolCaret}>
-              <ChevronRight color="#94A3B8" size={10} />
-            </View>
+            <Text style={styles.toolLabel}>Explore</Text>
+            <Text style={styles.toolSubLabel}>Islamic Content</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* 6. Inspiring Verse of the Day Card */}
+      {/* 7. Inspiring Verse of the Day Card */}
       <View style={styles.verseCard}>
         <View style={styles.verseLeft}>
           <Text style={styles.verseHeader}>VERSE OF THE DAY</Text>
@@ -681,7 +583,7 @@ export function HomeScreen() {
           <Text style={styles.verseTranslation}>"{verse.translation}"</Text>
           <Text style={styles.verseRef}>({verse.reference})</Text>
         </View>
-        
+
         <Image
           source={require('../../../assets/images/verse_quran.png')}
           style={styles.verseQuranImage}
@@ -690,92 +592,7 @@ export function HomeScreen() {
       </View>
 
       {/* Spacing for bottom floating navigation bar */}
-      <View style={{ height: 90 }} />
-      
-      {/* Prayer Times Bottom Sheet Modal */}
-      <Modal
-        visible={showTimesModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowTimesModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalBackdrop} 
-          activeOpacity={1} 
-          onPress={() => setShowTimesModal(false)}
-        >
-          <View style={styles.modalContentSheet}>
-            {/* Drag Handle */}
-            <View style={styles.dragHandle} />
-
-            {/* Header Row */}
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Prayer Times</Text>
-                <Text style={styles.modalSubtitle}>{hijriDate} • Mumbai</Text>
-              </View>
-              <TouchableOpacity 
-                style={styles.modalCloseButton} 
-                onPress={() => setShowTimesModal(false)}
-              >
-                <X color="#64748B" size={18} />
-              </TouchableOpacity>
-            </View>
-
-            {/* List of Prayer Times */}
-            {prayerTimes && (
-              <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
-                {[
-                  { name: 'Fajr', time: prayerTimes.fajr, icon: Sunrise, color: '#FF9F43', bg: '#FFF3E8' },
-                  { name: 'Sunrise', time: prayerTimes.sunrise, icon: Sun, color: '#FFD200', bg: '#FFFEEB' },
-                  { name: 'Dhuhr', time: prayerTimes.dhuhr, icon: Sun, color: '#00D2FC', bg: '#E3FCFF' },
-                  { name: 'Asr', time: prayerTimes.asr, icon: Clock, color: '#341F97', bg: '#EEECFF' },
-                  { name: 'Maghrib', time: prayerTimes.maghrib, icon: Sunset, color: '#FF5252', bg: '#FFEBEE' },
-                  { name: 'Isha', time: prayerTimes.isha, icon: Moon, color: '#5F27CD', bg: '#F1ECFF' },
-                ].map((item) => {
-                  const reminderActive = reminders[item.name];
-                  const Icon = item.icon;
-                  const displayTime = item.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-
-                  return (
-                    <View key={item.name} style={styles.modalRow}>
-                      <View style={styles.modalRowLeft}>
-                        <View style={[styles.modalIconBox, { backgroundColor: item.bg }]}>
-                          <Icon color={item.color} size={18} />
-                        </View>
-                        <View style={{ marginLeft: 12 }}>
-                          <Text style={styles.modalPrayerName}>{item.name}</Text>
-                          <Text style={styles.modalPrayerTime}>{displayTime}</Text>
-                        </View>
-                      </View>
-
-                      <TouchableOpacity 
-                        style={[
-                          styles.modalBellButton,
-                          reminderActive ? styles.modalBellButtonActive : styles.modalBellButtonInactive
-                        ]}
-                        onPress={() => toggleReminder(item.name)}
-                        activeOpacity={0.7}
-                      >
-                        <Bell color={reminderActive ? '#0E9F6E' : '#94A3B8'} size={18} fill={reminderActive ? '#0E9F6E' : 'none'} />
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            {/* Close Button */}
-            <TouchableOpacity 
-              style={styles.modalCloseMainButton} 
-              onPress={() => setShowTimesModal(false)}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.modalCloseMainButtonText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      <View style={{ height: 95 }} />
     </ScrollView>
   );
 }
@@ -783,7 +600,7 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC', // Slate 50 (very premium, soft light gray/blue background)
+    backgroundColor: '#F8FAFC', // Slate 50 (clean premium off-white background)
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -795,18 +612,17 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 250,
-    backgroundColor: '#E0F2FE', // Light blue top glow
+    height: 220,
+    backgroundColor: '#E0F2FE', // Soft blue top glow matching Home mockup
     opacity: 0.45,
-    borderBottomLeftRadius: 120,
-    borderBottomRightRadius: 120,
+    borderBottomLeftRadius: 100,
+    borderBottomRightRadius: 100,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 20 : 10,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -814,17 +630,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: '#0E9F6E',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#0E9F6E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
   },
   avatarInitial: {
     color: '#FFFFFF',
@@ -835,113 +646,106 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   greetingText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#F59E0B', // Warm Gold greeting
+    fontSize: 11,
+    color: '#64748B', // Medium gray greeting
   },
   usernameText: {
     fontSize: 20,
-    fontWeight: '800',
-    color: '#0F172A', // Slate 900
+    fontWeight: 'bold',
+    color: '#0F172A',
     marginTop: 1,
   },
   blessingText: {
     fontSize: 10,
-    color: '#94A3B8', // Slate 400
+    color: '#0E9F6E',
+    fontWeight: '600',
     marginTop: 2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
   },
-  levelStatusBox: {
-    alignItems: 'flex-end',
-  },
-  levelBadge: {
-    backgroundColor: '#E6F4EA',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginBottom: 3,
-  },
-  levelBadgeText: {
-    color: '#046C4E',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  xpPointsValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  xpPointsLabel: {
-    fontSize: 8,
-    color: '#94A3B8',
-  },
-  bellButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  levelCard: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
     borderColor: '#E2E8F0',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
     shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowRadius: 10,
     elevation: 2,
   },
-  bellBadgeDot: {
-    position: 'absolute',
-    top: 10,
-    right: 11,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#0E9F6E',
-    borderWidth: 1.2,
-    borderColor: '#FFFFFF',
+  levelInfo: {
+    justifyContent: 'center',
+  },
+  levelBadgeText: {
+    color: '#0E9F6E',
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  xpPointsValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0F172A',
+    marginTop: 1,
+  },
+  xpPointsLabel: {
+    fontSize: 9,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  lanternBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFBEB',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   nextPrayerCardWrapper: {
     borderRadius: 24,
     overflow: 'hidden',
     marginBottom: 20,
     shadowColor: '#0E9F6E',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
     elevation: 8,
   },
   nextPrayerGradient: {
     padding: 20,
     flexDirection: 'row',
-    height: 180,
+    height: 185,
     position: 'relative',
   },
   nextPrayerLeft: {
-    flex: 1,
+    flex: 1.2,
     zIndex: 1,
   },
   nextPrayerLabel: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#A7F3D0',
     fontSize: 9,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: 1.5,
   },
   nextPrayerNameText: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: 'bold',
     color: '#FFFFFF',
     marginTop: 4,
   },
   nextPrayerCountdown: {
     fontSize: 36,
-    fontWeight: '800',
+    fontWeight: 'bold',
     color: '#FFFFFF',
-    marginTop: 8,
+    marginTop: 6,
     letterSpacing: 1,
   },
   countdownLabels: {
@@ -949,33 +753,29 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.65)',
     fontWeight: '700',
     letterSpacing: 1,
-    marginTop: 2,
+    marginTop: 1,
   },
   viewTimesButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: '#FFFFFF',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 12,
     marginTop: 16,
     alignSelf: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
   },
   viewTimesButtonText: {
     color: '#0E9F6E',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: 'bold',
   },
   nextPrayerMosqueImage: {
     position: 'absolute',
     right: -10,
     bottom: -15,
-    width: 155,
-    height: 155,
+    width: 160,
+    height: 160,
     zIndex: 0,
   },
   loaderContainer: {
@@ -984,159 +784,84 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     gap: 8,
     backgroundColor: '#0E9F6E',
-    height: 180,
+    height: 185,
   },
   loaderText: {
     color: '#FFFFFF',
     fontSize: 14,
   },
-  promptCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 16,
+  prayerSliderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 20,
+  },
+  prayerSliderItem: {
+    width: '18%',
+    alignItems: 'center',
+    borderRadius: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
+  },
+  prayerSliderItemActive: {
+    borderColor: '#E2E8F0',
+  },
+  prayerSliderItemInactive: {
     borderColor: '#F1F5F9',
-    borderLeftWidth: 4,
-    borderLeftColor: '#F59E0B',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 3,
   },
-  promptHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
-  },
-  promptIconCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFFBEB',
+  prayerSliderIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    borderColor: '#FEF3C7',
+    marginBottom: 6,
     borderWidth: 1,
   },
-  promptIconText: {
-    fontSize: 20,
-  },
-  promptTextBox: {
-    flex: 1,
-  },
-  promptTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 2,
-  },
-  promptDesc: {
-    fontSize: 11,
-    color: '#64748B',
-    lineHeight: 15,
-  },
-  promptActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  promptYesBtn: {
-    flex: 1.3,
+  prayerSliderIconBoxActive: {
     backgroundColor: '#0E9F6E',
-    borderRadius: 12,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: '#0E9F6E',
   },
-  promptYesText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  promptNoBtn: {
-    flex: 1,
+  prayerSliderIconBoxInactive: {
     backgroundColor: '#F8FAFC',
     borderColor: '#E2E8F0',
-    borderWidth: 1,
-    borderRadius: 12,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  promptNoText: {
-    color: '#64748B',
-    fontSize: 12,
+  prayerSliderLabel: {
+    fontSize: 11,
     fontWeight: '700',
   },
-  progressCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 3,
+  prayerSliderLabelActive: {
+    color: '#0E9F6E',
   },
-  progressHeaderRow: {
+  prayerSliderLabelInactive: {
+    color: '#64748B',
+  },
+  todayProgressContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-  progressTitleIndicator: {
-    width: 4,
+  todayProgressLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  todayProgressCapsule: {
+    width: 3,
     height: 14,
     backgroundColor: '#0E9F6E',
     borderRadius: 2,
   },
-  progressTitle: {
-    fontSize: 14,
+  todayProgressTitle: {
+    fontSize: 13,
     fontWeight: '800',
     color: '#0F172A',
   },
-  progressCountText: {
+  todayProgressCount: {
     fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
-  },
-  prayerCirclesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  prayerCircleItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  prayerRing: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-    borderWidth: 1.5,
-  },
-  prayerRingCompleted: {
-    borderColor: '#0E9F6E',
-    backgroundColor: '#E6F4EA',
-  },
-  prayerRingPending: {
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-  },
-  prayerCircleLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  prayerCircleLabelActive: {
-    color: '#0E9F6E',
   },
   streakCard: {
     backgroundColor: '#FFFFFF',
@@ -1150,9 +875,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.02,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
   streakLeft: {
     flexDirection: 'row',
@@ -1160,20 +885,16 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   flameCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFF7ED', // Soft light orange
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFF7ED',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#F97316',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
   },
   streakFlameImage: {
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
   },
   streakInfo: {
     justifyContent: 'center',
@@ -1204,15 +925,15 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   streakDotActive: {
-    backgroundColor: '#F97316', // Orange active dot
+    backgroundColor: '#F97316',
   },
   streakDotInactive: {
     backgroundColor: '#E2E8F0',
   },
   streakGiftImage: {
-    width: 32,
-    height: 32,
-    marginLeft: 4,
+    width: 30,
+    height: 30,
+    marginLeft: 2,
   },
   toolsSection: {
     marginBottom: 20,
@@ -1228,11 +949,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1F5F9',
     borderRadius: 20,
-    width: '31.5%', // Perfect fit for 3 items in a row
-    paddingVertical: 12,
+    width: '31.5%',
+    paddingVertical: 14,
     paddingHorizontal: 8,
     alignItems: 'center',
-    position: 'relative',
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.02,
@@ -1242,11 +962,7 @@ const styles = StyleSheet.create({
   toolIconImage: {
     width: 44,
     height: 44,
-    marginBottom: 6,
-  },
-  toolInfoBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 8,
   },
   toolLabel: {
     color: '#0F172A',
@@ -1261,49 +977,36 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 2,
   },
-  toolCaret: {
-    position: 'absolute',
-    bottom: 8,
-    right: 8,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 0.5,
-    borderColor: '#E2E8F0',
-  },
   verseCard: {
-    backgroundColor: '#EBFBFA', // Light mint green/cyan tint
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 16,
     flexDirection: 'row',
     position: 'relative',
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E2F7F5',
-    shadowColor: '#0D9488',
+    borderColor: '#F1F5F9',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.02,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
   verseLeft: {
     flex: 1,
-    paddingRight: 100, // Space for the Quran image
+    paddingRight: 80,
     zIndex: 1,
   },
   verseHeader: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#0D9488',
+    color: '#94A3B8',
     letterSpacing: 1.5,
     marginBottom: 8,
   },
   verseArabic: {
     fontSize: 18,
-    color: '#0F172A',
+    color: '#0E9F6E',
     fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
     lineHeight: 28,
     fontWeight: 'bold',
@@ -1323,124 +1026,10 @@ const styles = StyleSheet.create({
   },
   verseQuranImage: {
     position: 'absolute',
-    right: -15,
-    bottom: -15,
-    width: 115,
-    height: 115,
+    right: -10,
+    bottom: -10,
+    width: 100,
+    height: 100,
     zIndex: 0,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalContentSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-    maxHeight: '80%',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 24,
-  },
-  dragHandle: {
-    width: 40,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#CBD5E1',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  modalSubtitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  modalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalScrollView: {
-    marginBottom: 16,
-  },
-  modalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  modalRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  modalIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalPrayerName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  modalPrayerTime: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  modalBellButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBellButtonActive: {
-    backgroundColor: '#E6F4EA',
-  },
-  modalBellButtonInactive: {
-    backgroundColor: '#F8FAFC',
-  },
-  modalCloseMainButton: {
-    backgroundColor: '#0E9F6E',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-    shadowColor: '#0E9F6E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  modalCloseMainButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
   },
 });

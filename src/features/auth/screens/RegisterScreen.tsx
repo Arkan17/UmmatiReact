@@ -54,7 +54,7 @@ export function RegisterScreen() {
     }
 
     setLoading(true);
-    const result = await register(username.trim(), password);
+    const result = await register(username.trim(), 'man');
     setLoading(false);
 
     if (result.success && result.uniqueAppId) {

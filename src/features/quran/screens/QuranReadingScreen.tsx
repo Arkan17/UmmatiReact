@@ -3,13 +3,11 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 import { ArrowLeft, Play, Pause, Bookmark, BookmarkCheck, Volume2, AlertCircle, Settings, BookOpen, AlignLeft, ChevronLeft, ChevronRight, SkipForward, SkipBack } from 'lucide-react-native';
-import { useAuth } from '../../../core/hooks/useAuth';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
 import { Theme } from '../../../core/theme/theme';
-import { supabase } from '../../../core/config/SupabaseClient';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../../core/navigation/RootNavigator';
-import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Path } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from 'react-native-svg';
 
 interface Ayah {
   number: number;
@@ -91,7 +89,6 @@ const SvgGradient = ({ colors }: { colors: string[] }) => (
 export function QuranReadingScreen() {
   const route = useRoute<ScreenRouteProp>();
   const navigation = useNavigation();
-  const { user } = useAuth();
   
   useScreenTime('QuranReading');
   
@@ -272,7 +269,7 @@ export function QuranReadingScreen() {
     }
   };
 
-  const saveLastReadPosition = async (ayah: Ayah) => {
+  const saveLastReadPosition = useCallback(async (ayah: Ayah) => {
     try {
       setLastReadAyah(ayah.numberInSurah);
       
@@ -299,7 +296,7 @@ export function QuranReadingScreen() {
     } catch (e) {
       console.warn('Failed to save last read position locally:', e);
     }
-  };
+  }, [currentJuzNumber, currentSurahNumber, currentJuzName, currentSurahName, currentTranslationName]);
 
   const handleBookmarkAyah = async (ayah: Ayah) => {
     const isBookmarked = !!bookmarkedAyahs[ayah.number];
@@ -345,7 +342,7 @@ export function QuranReadingScreen() {
     setIsPlaying(true);
     webViewRef.current?.injectJavaScript(`window.playAyahById(${ayah.number});`);
     saveLastReadPosition(ayah);
-  }, [currentJuzNumber, currentJuzName, currentSurahNumber, currentSurahName, currentTranslationName, user]);
+  }, [saveLastReadPosition]);
 
   const playNextAyah = () => {
     if (ayahs.length === 0) return;
@@ -559,9 +556,10 @@ export function QuranReadingScreen() {
 
   // Cleanup audio on screen unmount
   useEffect(() => {
+    const currentWebView = webViewRef.current;
     return () => {
       const script = `document.getElementById("audio-player").pause();`;
-      webViewRef.current?.injectJavaScript(script);
+      currentWebView?.injectJavaScript(script);
     };
   }, []);
 
@@ -592,7 +590,7 @@ export function QuranReadingScreen() {
           animated: true,
           viewPosition: 0.3 // Positions the active Ayah slightly above screen center
         });
-      } catch (err) {
+      } catch {
         // catch scroll failed, handled by onScrollToIndexFailed
       }
     } else {
@@ -607,7 +605,7 @@ export function QuranReadingScreen() {
             animated: true
           });
           setCurrentPageIndex(pageIndex);
-        } catch (err) {
+        } catch {
           // catch scroll failed, handled by onScrollToIndexFailed
         }
       }

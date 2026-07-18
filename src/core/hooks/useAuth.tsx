@@ -14,7 +14,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   user: UserProfile | null;
   onboardingCompleted: boolean;
-  register: (username: string, gender: string) => Promise<{ success: boolean; error?: string }>;
+  register: (username: string, gender: string) => Promise<{ success: boolean; error?: string; uniqueAppId?: string }>;
   login: (username: string, pass: string, uniqueAppId: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
@@ -82,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (username: string, gender: string): Promise<{ success: boolean; error?: string }> => {
+  const register = async (username: string, gender: string): Promise<{ success: boolean; error?: string; uniqueAppId?: string }> => {
     setIsLoading(true);
     try {
       const sanitizedUsername = username.trim();
@@ -104,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(true);
       setIsLoading(false);
 
-      return { success: true };
+      return { success: true, uniqueAppId };
     } catch (e: any) {
       setIsLoading(false);
       return { success: false, error: e.message || 'An error occurred during registration.' };

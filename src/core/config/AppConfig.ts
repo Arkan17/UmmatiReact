@@ -6,8 +6,8 @@ declare const process: {
 
 export const AppConfig = {
   // Replace these with your actual Supabase Project URL and Anon Key
-  supabaseUrl: process.env.SUPABASE_URL || 'https://uuonrjrlehizarmaqyjo.supabase.co',
-  supabaseAnonKey: process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1b25yanJsZWhpemFybWFxeWpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxNzY4MjYsImV4cCI6MjA5OTc1MjgyNn0.WSqrp91H_zxnigGX40VQB6Us1Cvjb0uS6Uwm4rBj3ac',
+  supabaseUrl: 'https://uuonrjrlehizarmaqyjo.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1b25yanJsZWhpemFybWFxeWpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxNzY4MjYsImV4cCI6MjA5OTc1MjgyNn0.WSqrp91H_zxnigGX40VQB6Us1Cvjb0uS6Uwm4rBj3ac',
 
   // Public URL for general application content (Duas, Kalimas, Naats, Live Streams, Kids Section)
   contentApiUrl: 'https://raw.githubusercontent.com/Arkan17/UmmatiReact/main/ummati_app_data.json',

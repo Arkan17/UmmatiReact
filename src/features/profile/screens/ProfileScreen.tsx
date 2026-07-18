@@ -4,14 +4,15 @@ import { Copy, Check, Award, Flame, BookOpen, Clock } from 'lucide-react-native'
 import { useAuth } from '../../../core/hooks/useAuth';
 import { Theme } from '../../../core/theme/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 
 export function ProfileScreen() {
   const { user, logout } = useAuth();
+  const navigation = useNavigation();
 
   const [streak, setStreak] = useState(0);
   const [totalXp, setTotalXp] = useState(0);
-  const [lastReadSurah, setLastReadSurah] = useState<number | null>(null);
-  const [lastReadAyah, setLastReadAyah] = useState<number | null>(null);
+  const [lastReadSurah, setLastReadSurah] = useState<string | null>(null);
 
   // Computed stats
   const [totalPrayersLogged, setTotalPrayersLogged] = useState(0);
@@ -20,10 +21,10 @@ export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
-  // Level calculation: 100 XP per level
-  const currentLevel = 1 + Math.floor(totalXp / 100);
-  const xpNeededForNext = 100 - (totalXp % 100);
-  const progressToNextLevel = (totalXp % 100) / 100;
+  // Level calculation: 500 XP per level
+  const currentLevel = 1 + Math.floor(totalXp / 500);
+  const xpInCurrentLevel = totalXp % 500;
+  const progressToNextLevel = xpInCurrentLevel / 500;
 
   const loadProfileStats = useCallback(async () => {
     if (!user) return;
@@ -38,8 +39,7 @@ export function ProfileScreen() {
       if (storedStreak !== null) setStreak(parseInt(storedStreak, 10));
       if (globalLastRead) {
         const parsed = JSON.parse(globalLastRead);
-        setLastReadSurah(parsed.surahNumber || null);
-        setLastReadAyah(parsed.ayahNumber || null);
+        setLastReadSurah(parsed.surahName || null);
       }
 
       // 2. Count total prayers logged locally
@@ -78,8 +78,11 @@ export function ProfileScreen() {
   };
 
   useEffect(() => {
-    loadProfileStats();
-  }, [user, loadProfileStats]);
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadProfileStats();
+    });
+    return unsubscribe;
+  }, [navigation, loadProfileStats]);
 
   return (
     <View style={styles.container}>
@@ -111,7 +114,7 @@ export function ProfileScreen() {
             <View style={styles.xpProgressContainer}>
               <View style={styles.xpProgressHeader}>
                 <Text style={styles.xpTextValue}>{totalXp} XP</Text>
-                <Text style={styles.xpTextLabel}>Next: {currentLevel * 100} XP</Text>
+                <Text style={styles.xpTextLabel}>Next: {500 - (totalXp % 500)} XP</Text>
               </View>
               <View style={styles.progressBarBg}>
                 <View style={[styles.progressBarFill, { width: `${progressToNextLevel * 100}%` }]} />
@@ -125,7 +128,7 @@ export function ProfileScreen() {
               <View style={[styles.statIconCircle, { backgroundColor: '#E6F4EA' }]}>
                 <Award color={Theme.colors.primary} size={20} />
               </View>
-              <Text style={styles.statValue}>{(totalPrayersLogged * 20) % 100 || 92}%</Text>
+              <Text style={styles.statValue}>{totalPrayersLogged} Namaz</Text>
               <Text style={styles.statLabel}>Prayers Logged</Text>
             </View>
 
@@ -134,9 +137,9 @@ export function ProfileScreen() {
                 <BookOpen color="#A855F7" size={20} />
               </View>
               <Text style={styles.statValue}>
-                {lastReadSurah ? `${lastReadSurah} Surahs` : '58 Surahs'}
+                {lastReadSurah || 'None'}
               </Text>
-              <Text style={styles.statLabel}>Quran Progress</Text>
+              <Text style={styles.statLabel}>Last Read Surah</Text>
             </View>
 
             <View style={styles.statCard}>
@@ -144,7 +147,7 @@ export function ProfileScreen() {
                 <Clock color="#3B82F6" size={20} />
               </View>
               <Text style={styles.statValue}>
-                {totalTasbihCompleted > 0 ? totalTasbihCompleted.toLocaleString() : '10,294'}
+                {totalTasbihCompleted.toLocaleString()}
               </Text>
               <Text style={styles.statLabel}>Tasbih Count</Text>
             </View>
@@ -153,7 +156,7 @@ export function ProfileScreen() {
               <View style={[styles.statIconCircle, { backgroundColor: '#FEF3C7' }]}>
                 <Flame color={Theme.colors.accent} size={20} />
               </View>
-              <Text style={styles.statValue}>{streak || 29} Days</Text>
+              <Text style={styles.statValue}>{streak} Days</Text>
               <Text style={styles.statLabel}>Streak Count</Text>
             </View>
           </View>

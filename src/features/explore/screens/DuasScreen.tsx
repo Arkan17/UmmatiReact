@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, TextInput } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { ArrowLeft, Volume2, Search, X, Sparkles, BookOpen } from 'lucide-react-native';
+import { ArrowLeft, Volume2, Search, X, Sparkles, BookOpen, AlertCircle } from 'lucide-react-native';
 import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
@@ -22,7 +22,7 @@ export function DuasScreen() {
     if (content.duas && content.duas.length > 0 && duas.length === 0) {
       setDuas(content.duas);
     }
-  }, [content]);
+  }, [content, duas.length]);
 
   // Fetch live duas from Naikiyah API
   useEffect(() => {
