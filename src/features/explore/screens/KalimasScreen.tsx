@@ -1,13 +1,19 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { ArrowLeft, Volume2 } from 'lucide-react-native';
-import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
+import { BookOpen, Pause, Volume2 } from 'lucide-react-native';
+import { useAppTheme } from '../../../core/theme/ThemeProvider';
+import { BrutalBox, BrutalPressable, GlassCard, ScreenHeader } from '../../../core/components/ui';
+import { brutal } from '../../../core/theme/palettes';
 import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
 
 export function KalimasScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const { content } = useDynamicContent();
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const webViewRef = useRef<WebView<{}>>(null);
@@ -49,16 +55,7 @@ export function KalimasScreen() {
   `;
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft color={Theme.colors.text} size={24} />
-        </TouchableOpacity>
-        <Text style={styles.title}>6 Kalimas</Text>
-        <View style={styles.placeholderWidth} />
-      </View>
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Hidden Audio WebView */}
       <View style={styles.hiddenWebView}>
         <WebView<{}>
@@ -75,151 +72,127 @@ export function KalimasScreen() {
         />
       </View>
 
-      <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-        {kalimas.map((item, index) => {
-          const isCurrentPlaying = playingIndex === index;
-          return (
-            <View key={item.number} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardName}>{item.name}</Text>
-                
-                {/* Audio button */}
-                <TouchableOpacity
-                  style={[styles.audioBtn, isCurrentPlaying ? styles.audioBtnPlaying : null]}
-                  onPress={() => handlePlayAudio(index, item.audio)}
-                >
-                  <Volume2 color={isCurrentPlaying ? Theme.colors.white : Theme.colors.primary} size={16} />
-                  <Text style={[styles.audioBtnText, isCurrentPlaying ? styles.audioBtnTextPlaying : null]}>
-                    {isCurrentPlaying ? 'Playing' : 'Listen'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <ScreenHeader
+          title="Six Kalimas"
+          subtitle="The six declarations of faith — read, listen and memorise"
+          onBack={() => navigation.goBack()}
+        >
+          <View style={styles.heroRow}>
+            <GlassCard style={styles.heroPill}>
+              <BookOpen color={colors.onSky} size={14} />
+              <Text style={[styles.heroPillText, { color: colors.onSky }]}>{kalimas.length || 6} Kalimas</Text>
+            </GlassCard>
+            {playingIndex !== null && (
+              <GlassCard style={styles.heroPill}>
+                <Volume2 color={colors.onSky} size={14} />
+                <Text style={[styles.heroPillText, { color: colors.onSky }]} numberOfLines={1}>
+                  Playing {kalimas[playingIndex]?.name ?? ''}
+                </Text>
+              </GlassCard>
+            )}
+          </View>
+        </ScreenHeader>
 
-              {/* Arabic */}
-              <Text style={styles.arabic}>{item.arabic}</Text>
+        <View style={styles.list}>
+          {kalimas.length === 0 && (
+            <Text style={[styles.empty, { color: colors.textMuted }]}>Loading Kalimas…</Text>
+          )}
+          {kalimas.map((item, index) => {
+            const isCurrentPlaying = playingIndex === index;
+            return (
+              <Animated.View
+                key={item.number}
+                entering={FadeInDown.delay(Math.min(80 + index * 60, 400)).duration(420)}
+                layout={LinearTransition}
+              >
+                <BrutalBox radius={24} fill={isCurrentPlaying ? colors.primarySoft : colors.surface} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View style={[styles.numberTile, { backgroundColor: colors.accent, borderColor: colors.ink }]}>
+                      <Text style={[styles.numberText, { color: colors.ink }]}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.headerText}>
+                      <Text style={[styles.cardKicker, { color: colors.textMuted }]}>KALIMA {index + 1}</Text>
+                      <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={2}>{item.name}</Text>
+                    </View>
 
-              {/* Transliteration */}
-              <View style={styles.metaSection}>
-                <Text style={styles.metaLabel}>Pronunciation</Text>
-                <Text style={styles.trans}>{item.transliteration}</Text>
-              </View>
+                    {/* Audio button */}
+                    <BrutalPressable
+                      onPress={() => handlePlayAudio(index, item.audio)}
+                      fill={isCurrentPlaying ? colors.primary : colors.accentSoft}
+                      radius={12}
+                      offset={brutal.shadowSmall}
+                      borderWidth={brutal.borderThin}
+                      style={styles.audioBtn}
+                    >
+                      {isCurrentPlaying
+                        ? <Pause color={colors.onPrimary} size={15} />
+                        : <Volume2 color={colors.ink} size={15} strokeWidth={2.4} />}
+                      <Text style={[styles.audioBtnText, { color: colors.ink }]}>
+                        {isCurrentPlaying ? 'Playing' : 'Listen'}
+                      </Text>
+                    </BrutalPressable>
+                  </View>
 
-              {/* Translation */}
-              <View style={styles.metaSection}>
-                <Text style={styles.metaLabel}>Translation</Text>
-                <Text style={styles.trans}>{item.translation}</Text>
-              </View>
-            </View>
-          );
-        })}
+                  {/* Arabic */}
+                  <View style={[styles.arabicPanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.ink }]}>
+                    <Text style={[styles.arabic, { color: colors.text }]}>{item.arabic}</Text>
+                  </View>
+
+                  {/* Transliteration */}
+                  <View style={styles.metaSection}>
+                    <View style={styles.metaLabelRow}>
+                      <View style={[styles.metaDot, { backgroundColor: colors.accent, borderColor: colors.ink }]} />
+                      <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>Pronunciation</Text>
+                    </View>
+                    <Text style={[styles.transliteration, { color: colors.textSecondary }]}>{item.transliteration}</Text>
+                  </View>
+
+                  {/* Translation */}
+                  <View style={[styles.metaSection, styles.metaLast]}>
+                    <View style={styles.metaLabelRow}>
+                      <View style={[styles.metaDot, { backgroundColor: colors.primary, borderColor: colors.ink }]} />
+                      <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>Translation</Text>
+                    </View>
+                    <Text style={[styles.translation, { color: colors.text }]}>{item.translation}</Text>
+                  </View>
+                </BrutalBox>
+              </Animated.View>
+            );
+          })}
+        </View>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-    backgroundColor: Theme.colors.surface,
-  },
-  backBtn: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  placeholderWidth: {
-    width: 40,
-  },
-  listContainer: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  card: {
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.lg,
-    padding: 20,
-    marginBottom: 20,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(35, 68, 50, 0.2)',
-    paddingBottom: 12,
-    marginBottom: 16,
-  },
-  cardName: {
-    color: Theme.colors.text,
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  audioBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: Theme.radius.sm,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    gap: 4,
-  },
-  audioBtnPlaying: {
-    backgroundColor: Theme.colors.primary,
-  },
-  audioBtnText: {
-    color: Theme.colors.primary,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  audioBtnTextPlaying: {
-    color: Theme.colors.white,
-  },
-  arabic: {
-    fontSize: 22,
-    color: Theme.colors.white,
-    fontFamily: 'Georgia',
-    lineHeight: 38,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  metaSection: {
-    marginBottom: 14,
-    gap: 4,
-  },
-  metaLabel: {
-    color: Theme.colors.accent,
-    fontSize: 11,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  trans: {
-    color: Theme.colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  hiddenWebView: {
-    width: 0,
-    height: 0,
-    position: 'absolute',
-    opacity: 0,
-  },
+  container: { flex: 1 },
+  heroRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 },
+  heroPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, maxWidth: '100%' },
+  heroPillText: { fontSize: 13, fontWeight: '800', flexShrink: 1 },
+  list: { paddingHorizontal: 18, paddingTop: 20 },
+  empty: { textAlign: 'center', fontSize: 14, fontWeight: '600', marginTop: 30 },
+  card: { marginBottom: 20, marginRight: brutal.shadow, padding: 18 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  numberTile: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  numberText: { fontSize: 20, fontWeight: '900' },
+  headerText: { flex: 1 },
+  cardKicker: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  cardName: { fontSize: 17, fontWeight: '900', letterSpacing: -0.2, marginTop: 2 },
+  audioBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8 },
+  audioBtnText: { fontSize: 12, fontWeight: '900' },
+  arabicPanel: { borderRadius: 18, paddingVertical: 18, paddingHorizontal: 16, borderWidth: brutal.borderThin, marginBottom: 16 },
+  arabic: { fontSize: 26, fontFamily: 'Georgia', lineHeight: 50, textAlign: 'center', writingDirection: 'rtl' },
+  metaSection: { marginBottom: 14, gap: 6 },
+  metaLast: { marginBottom: 0 },
+  metaLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  metaDot: { width: 9, height: 9, borderRadius: 5, borderWidth: 1.5 },
+  metaLabel: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.8 },
+  transliteration: { fontSize: 14, lineHeight: 22, fontStyle: 'italic', fontWeight: '500' },
+  translation: { fontSize: 14, lineHeight: 22, fontWeight: '500' },
+  hiddenWebView: { width: 0, height: 0, position: 'absolute', opacity: 0 },
 });

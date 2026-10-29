@@ -1,1269 +1,857 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Modal, TextInput, Alert, Platform, Linking, ScrollView, Image } from 'react-native';
-import { ArrowLeft, MapPin, Edit, Search, X, SlidersHorizontal, Share2, Bookmark, Phone, Car, Bike, Footprints, Bus, Navigation, Compass } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Coordinates, CalculationMethod, PrayerTimes, Madhab } from 'adhan';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Linking, Modal, Platform, Pressable,
+  ScrollView, Share, StyleSheet, Text, TextInput, View, useWindowDimensions,
+} from 'react-native';
+import {
+  BadgeCheck, Bike, Bookmark, BookmarkCheck, Car, ChevronLeft, Clock, ExternalLink, Flag, Footprints,
+  List, LocateFixed, MapPin, Navigation, Pencil, Phone, RefreshCw, Search, Share2, WifiOff, X,
+} from 'lucide-react-native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useLocation } from '../../../core/hooks/useLocation';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
-import { Theme } from '../../../core/theme/theme';
-import { useNavigation } from '@react-navigation/native';
-import Svg, { Circle, Path, G, Rect, Line } from 'react-native-svg';
+import { useAppTheme } from '../../../core/theme/ThemeProvider';
+import { brutal, tints } from '../../../core/theme/palettes';
+import { BrutalBox, BrutalPressable, PressableScale, haptic, outline } from '../../../core/components/ui';
+import { MosqueMap, MosqueMapHandle } from '../components/MosqueMap';
+import { useLiveLocation } from '../hooks/useLiveLocation';
+import {
+  JamatTimings, Mosque, RouteInfo, TravelMode, directionsUrl, distanceMeters, estimateWalkSeconds,
+  fetchNearbyMosques, fetchRoute, formatDistance, formatDuration, getCachedMosques, loadSavedIds, mapsUrl,
+  nextJamat, saveJamatTimes, storeSavedIds,
+} from '../services/mosqueApi';
 
-interface Mosque {
-  id: string;
-  name: string;
-  address: string;
-  latitude: number;
-  longitude: number;
-  distance?: number;
-  isEstimated?: boolean;
-  timings?: {
-    fajr: string;
-    dhuhr: string;
-    asr: string;
-    maghrib: string;
-    isha: string;
-    jummah: string;
-  };
-}
+const INK = '#1C1A17';
 
-// Distance utility
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371; // km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return parseFloat((R * c).toFixed(1)); // Return to 1 decimal place (e.g. 1.2 km)
+type FilterKey = 'all' | 'walk' | 'saved' | 'mine';
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'walk', label: '🚶 Walkable' },
+  { key: 'saved', label: '🔖 Saved' },
+  { key: 'mine', label: '✓ My times' },
+];
+const WALKABLE_M = 1500;
+const ARRIVED_M = 40;
+/** Re-route once the user has moved this far from where the current route started */
+const REROUTE_M = 75;
+
+const MODES: { key: TravelMode; label: string; Icon: typeof Car }[] = [
+  { key: 'car', label: 'Drive', Icon: Car },
+  { key: 'bike', label: 'Bike', Icon: Bike },
+  { key: 'walk', label: 'Walk', Icon: Footprints },
+];
+
+const JAMAT_LABELS: Record<keyof JamatTimings, string> = {
+  fajr: 'Fajr', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha', jummah: "Jumu'ah",
 };
 
-// Jamat times estimator using Adhan calculation engine (MWL Hanafi method + offset)
-const calculateDefaultJamatTimes = (lat: number, lng: number) => {
-  const coords = new Coordinates(lat, lng);
-  const params = CalculationMethod.MuslimWorldLeague();
-  params.madhab = Madhab.Hanafi;
-  const date = new Date();
-  const prayerTimes = new PrayerTimes(coords, date, params);
-
-  const formatTime = (timeDate: Date | null | undefined, offsetMinutes: number) => {
-    if (!timeDate) return '--:--';
-    const adjusted = new Date(timeDate.getTime() + offsetMinutes * 60 * 1000);
-    let hours = adjusted.getHours();
-    let minutes = adjusted.getMinutes();
-    const pad = (n: number) => (n < 10 ? '0' : '') + n;
-    return `${pad(hours)}:${pad(minutes)}`;
-  };
-
-  return {
-    fajr: formatTime(prayerTimes.fajr, 15),
-    dhuhr: formatTime(prayerTimes.dhuhr, 15),
-    asr: formatTime(prayerTimes.asr, 15),
-    maghrib: formatTime(prayerTimes.maghrib, 7),
-    isha: formatTime(prayerTimes.isha, 15),
-    jummah: '13:30',
-  };
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-    backgroundColor: Theme.colors.surface,
-  },
-  backBtn: {
-    padding: 8,
-  },
-  filterHeaderBtn: {
-    padding: 8,
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    borderRadius: 10,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  loadingText: {
-    color: Theme.colors.textSecondary,
-    fontSize: 15,
-  },
-  listContainer: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  searchBarContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
-    backgroundColor: Theme.colors.background,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
-    height: 44,
-    paddingHorizontal: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    color: Theme.colors.text,
-    fontSize: 14,
-    height: '100%',
-    padding: 0,
-  },
-  clearSearchBtn: {
-    padding: 4,
-  },
-  gpsTargetBtn: {
-    padding: 6,
-    marginLeft: 4,
-  },
-  card: {
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.lg,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  cardInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  mosqueThumbnail: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-    marginRight: 12,
-  },
-  mosqueDetailsCol: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  mosqueNameRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  mosqueName: {
-    color: Theme.colors.text,
-    fontSize: 15,
-    fontWeight: 'bold',
-    flex: 1,
-    paddingRight: 8,
-  },
-  distanceBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-  },
-  distanceBadgeText: {
-    color: Theme.colors.primary,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  mosqueAddrRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  mosqueAddr: {
-    color: Theme.colors.textSecondary,
-    fontSize: 12,
-    flex: 1,
-  },
-  estimatedStatusRow: {
-    flexDirection: 'row',
-  },
-  estimatedBadge: {
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    borderColor: 'rgba(245, 158, 11, 0.2)',
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  estimatedBadgeText: {
-    color: '#D97706',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  verifiedBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    borderColor: 'rgba(16, 185, 129, 0.2)',
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  verifiedBadgeText: {
-    color: '#059669',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  timingsScrollContainer: {
-    marginTop: 4,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.radius.md,
-    backgroundColor: Theme.colors.background,
-  },
-  timingsScrollContent: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    gap: 10,
-  },
-  timeBlock: {
-    alignItems: 'center',
-    width: 65,
-    paddingVertical: 6,
-    borderRadius: Theme.radius.sm,
-  },
-  timeBlockNext: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    borderColor: 'rgba(16, 185, 129, 0.2)',
-    borderWidth: 1,
-  },
-  timeBlockLabel: {
-    color: Theme.colors.textMuted,
-    fontSize: 9,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  timeBlockLabelNext: {
-    color: '#059669',
-  },
-  timeBlockVal: {
-    color: Theme.colors.text,
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  timeBlockValNext: {
-    color: '#046C4E',
-    fontSize: 12,
-  },
-  nextDotBadge: {
-    backgroundColor: '#10B981',
-    borderRadius: 3,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    marginTop: 3,
-  },
-  nextDotText: {
-    color: Theme.colors.white,
-    fontSize: 6,
-    fontWeight: 'bold',
-  },
-  cardActionsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
-  },
-  directionsBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Theme.colors.primary,
-    borderRadius: Theme.radius.sm,
-    paddingVertical: 10,
-    gap: 6,
-  },
-  directionsBtnText: {
-    color: Theme.colors.white,
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  updateCardBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    borderRadius: Theme.radius.sm,
-    paddingVertical: 10,
-    gap: 6,
-    borderColor: 'rgba(16, 185, 129, 0.15)',
-    borderWidth: 1,
-  },
-  updateCardBtnText: {
-    color: Theme.colors.primary,
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-    gap: 16,
-  },
-  emptyText: {
-    color: Theme.colors.textMuted,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  modalContent: {
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.lg,
-    padding: 24,
-    width: '100%',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  modalSub: {
-    fontSize: 14,
-    color: Theme.colors.accent,
-    textAlign: 'center',
-    marginBottom: 20,
-    fontWeight: 'bold',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  modalBtn: {
-    flex: 1,
-    height: 46,
-    borderRadius: Theme.radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBtnCancel: {
-    backgroundColor: Theme.colors.background,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-  },
-  modalBtnCancelText: {
-    color: Theme.colors.textSecondary,
-    fontWeight: 'bold',
-  },
-  modalBtnSubmit: {
-    backgroundColor: Theme.colors.primary,
-  },
-  modalBtnSubmitText: {
-    color: Theme.colors.white,
-    fontWeight: 'bold',
-  },
-  timingsFormGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 20,
-  },
-  formItem: {
-    width: '30%',
-    gap: 4,
-  },
-  formLabel: {
-    color: Theme.colors.textMuted,
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  formInput: {
-    backgroundColor: Theme.colors.background,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.sm,
-    height: 40,
-    textAlign: 'center',
-    color: Theme.colors.text,
-    fontSize: 13,
-  },
-  sheetOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  sheetDismissArea: {
-    flex: 1,
-  },
-  sheetContent: {
-    backgroundColor: Theme.colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-    minHeight: '52%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 24,
-  },
-  sheetContentExpanded: {
-    minHeight: '85%',
-  },
-  dragHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#CBD5E1',
-    borderRadius: 2.5,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sheetTitleBox: {
-    flex: 1,
-    paddingRight: 16,
-  },
-  sheetTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  sheetDistance: {
-    fontSize: 12,
-    color: Theme.colors.textSecondary,
-    marginTop: 2,
-  },
-  sheetCloseBtn: {
-    padding: 6,
-    backgroundColor: Theme.colors.background,
-    borderRadius: 16,
-  },
-  modesContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    gap: 10,
-  },
-  modeBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Theme.colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-  },
-  modeBtnActive: {
-    backgroundColor: Theme.colors.primary,
-    borderColor: Theme.colors.primary,
-  },
-  routeDetailsBox: {
-    backgroundColor: 'rgba(16, 185, 129, 0.04)',
-    borderColor: 'rgba(16, 185, 129, 0.15)',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-  },
-  routeMainText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  routeSubText: {
-    fontSize: 12,
-    color: '#059669',
-    marginTop: 2,
-  },
-  mapContainer: {
-    width: '100%',
-    height: 180,
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-  },
-  mapContainerExpanded: {
-    height: 320,
-  },
-  expandMapBtn: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  expandText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  sheetAddress: {
-    fontSize: 13,
-    color: Theme.colors.textSecondary,
-    lineHeight: 18,
-    marginBottom: 20,
-  },
-  startNavBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Theme.colors.primary,
-    borderRadius: 14,
-    height: 52,
-    marginBottom: 16,
-    gap: 8,
-    shadowColor: Theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  startNavText: {
-    color: Theme.colors.white,
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  navIcon: {},
-  secActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  secActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Theme.colors.background,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    gap: 6,
-  },
-  secActionText: {
-    fontSize: 13,
-    color: Theme.colors.textSecondary,
-    fontWeight: '600',
-  },
-  filterRowContainer: {
-    backgroundColor: Theme.colors.surface,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-  },
-  filterScrollContent: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  filterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: Theme.colors.background,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-  },
-  filterChipActive: {
-    backgroundColor: Theme.colors.primary,
-    borderColor: Theme.colors.primary,
-  },
-  filterChipText: {
-    fontSize: 13,
-    color: Theme.colors.textSecondary,
-    fontWeight: 'bold',
-  },
-  filterChipTextActive: {
-    color: Theme.colors.white,
-  },
-});
+type LoadState = 'loading' | 'ready' | 'error';
+type RouteState = RouteInfo | 'loading' | null;
 
 export function MosqueScreen() {
-  const { latitude, longitude, loading: locationLoading } = useLocation();
   useScreenTime('Mosques');
+  const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const isFocused = useIsFocused();
+  const { width: screenW } = useWindowDimensions();
+  const isStackScreen = route.name === 'Mosque';
+  const { latitude, longitude, loading: locating, isUsingFallback, refreshLocation } = useLocation();
+
+  const live = useLiveLocation({ latitude, longitude }, isFocused && !locating);
+  const mapRef = useRef<MosqueMapHandle>(null);
+  const carouselRef = useRef<FlatList<Mosque>>(null);
 
   const [mosques, setMosques] = useState<Mosque[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [fromCache, setFromCache] = useState(false);
+  const [radius, setRadius] = useState(5000);
+  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<FilterKey>('all');
+  const [listOpen, setListOpen] = useState(false);
+  const [editing, setEditing] = useState<Mosque | null>(null);
 
-  // Modal control states
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [selectedMosque, setSelectedMosque] = useState<Mosque | null>(null);
+  // Tracker (turn-by-turn style) state
+  const [tracking, setTracking] = useState<Mosque | null>(null);
+  const [mode, setMode] = useState<TravelMode>('walk');
+  const [routes, setRoutes] = useState<Record<TravelMode, RouteState>>({ car: null, bike: null, walk: null });
+  const [follow, setFollow] = useState(false);
+  const routeFrom = useRef<{ latitude: number; longitude: number } | null>(null);
+  const arrivedFor = useRef<string | null>(null);
 
-  // Update Timings Form Inputs
-  const [fajr, setFajr] = useState('');
-  const [dhuhr, setDhuhr] = useState('');
-  const [asr, setAsr] = useState('');
-  const [maghrib, setMaghrib] = useState('');
-  const [isha, setIsha] = useState('');
-  const [jummah, setJummah] = useState('');
-  const [updatingState, setUpdatingState] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  // Floating UI heights, so the map frames markers in the visible gap between them
+  const [topH, setTopH] = useState(150);
+  const [bottomH, setBottomH] = useState(220);
+  const bottomOffset = isStackScreen ? insets.bottom + 14 : Math.max(insets.bottom, 12) + 68 + 16;
+  const mapPadding = useMemo(() => ({ top: topH, bottom: bottomH + bottomOffset }), [topH, bottomH, bottomOffset]);
 
-  // Bottom Sticky Filter state
-  const [activeFilter, setActiveFilter] = useState<'Nearest' | 'Open' | 'Jumu\'ah' | 'Women' | 'Parking'>('Nearest');
+  useEffect(() => { loadSavedIds().then(setSavedIds); }, []);
 
-  // Map Bottom Sheet states
-  const [selectedMapMosque, setSelectedMapMosque] = useState<Mosque | null>(null);
-  const [showMapSheet, setShowMapSheet] = useState(false);
-  const [mapTravelMode, setMapTravelMode] = useState<'car' | 'bike' | 'walk' | 'transit'>('car');
-  const [isMapExpanded, setIsMapExpanded] = useState(false);
-
-  const openMapSheet = (mosque: Mosque) => {
-    setSelectedMapMosque(mosque);
-    setMapTravelMode('car');
-    setIsMapExpanded(false);
-    setShowMapSheet(true);
-  };
-
-  const closeMapSheet = () => {
-    setShowMapSheet(false);
-    setSelectedMapMosque(null);
-  };
-
-  // Fetch mosques from OpenStreetMap Overpass API and merge with locally stored Jamat timings
-  const loadMosques = useCallback(async () => {
-    setLoading(true);
-    try {
-      let osmMosques: Mosque[] = [];
-      try {
-        const query = `[out:json];(node(around:10000,${latitude},${longitude})[amenity=place_of_worship][religion=muslim];way(around:10000,${latitude},${longitude})[amenity=place_of_worship][religion=muslim];);out center;`;
-        const res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'UmmatiApp/1.0'
-          },
-          body: `data=${encodeURIComponent(query)}`
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json && json.elements) {
-            const elementsWithCoords = json.elements.filter((el: any) => {
-              const elLat = el.lat !== undefined ? el.lat : el.center?.lat;
-              const elLon = el.lon !== undefined ? el.lon : el.center?.lon;
-              return typeof elLat === 'number' && typeof elLon === 'number';
-            });
-
-            // Fetch all stored local timings in parallel to combine them
-            const parsedMosques = await Promise.all(
-              elementsWithCoords.map(async (el: any) => {
-                const elLat = el.lat !== undefined ? el.lat : el.center?.lat;
-                const elLon = el.lon !== undefined ? el.lon : el.center?.lon;
-                const distance = calculateDistance(latitude, longitude, elLat, elLon);
-
-                let addrStr = '';
-                if (el.tags?.['addr:housenumber']) addrStr += el.tags['addr:housenumber'] + ' ';
-                if (el.tags?.['addr:street']) addrStr += el.tags['addr:street'] + ', ';
-                if (el.tags?.['addr:suburb']) addrStr += el.tags['addr:suburb'] + ', ';
-                if (el.tags?.['addr:city']) addrStr += el.tags['addr:city'];
-                addrStr = addrStr.trim();
-                if (addrStr.endsWith(',')) addrStr = addrStr.slice(0, -1);
-                if (!addrStr) addrStr = el.tags?.['addr:full'] || 'Address in Map View';
-
-                const osmId = `osm-${el.id}`;
-                let timings;
-                let isEstimated = false;
-                try {
-                  const stored = await AsyncStorage.getItem(`ummati_jamat_times_${osmId}`);
-                  if (stored) {
-                    timings = JSON.parse(stored);
-                  } else {
-                    timings = calculateDefaultJamatTimes(elLat, elLon);
-                    isEstimated = true;
-                  }
-                } catch (err) {
-                  console.warn('Error reading local timing:', err);
-                  timings = calculateDefaultJamatTimes(elLat, elLon);
-                  isEstimated = true;
-                }
-
-                return {
-                  id: osmId,
-                  name: el.tags?.name || 'Masjid (Name Unknown)',
-                  address: addrStr,
-                  latitude: elLat,
-                  longitude: elLon,
-                  distance,
-                  isEstimated,
-                  timings
-                };
-              })
-            );
-            osmMosques = parsedMosques;
-          }
-        }
-      } catch (osmError) {
-        console.warn('Failed to fetch from OpenStreetMap Overpass:', osmError);
-      }
-
-      // Sort by proximity
-      osmMosques.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-      setMosques(osmMosques);
-    } catch (e) {
-      console.warn('Error loading mosques:', e);
-    } finally {
-      setLoading(false);
+  const load = useCallback(async (lat: number, lng: number) => {
+    setLoadState('loading');
+    // Show the last result for this area straight away, then refresh it
+    const cached = await getCachedMosques(lat, lng);
+    if (cached?.mosques.length) {
+      setMosques(cached.mosques);
+      setRadius(cached.radius);
     }
-  }, [latitude, longitude]);
+    try {
+      const res = await fetchNearbyMosques(lat, lng);
+      setMosques(res.mosques);
+      setRadius(res.radius);
+      setFromCache(!!res.fromCache);
+      setLoadState('ready');
+    } catch {
+      setFromCache(!!cached?.mosques.length);
+      setLoadState(cached?.mosques.length ? 'ready' : 'error');
+    }
+  }, []);
 
   useEffect(() => {
-    if (!locationLoading) {
-      loadMosques();
-    }
-  }, [locationLoading, loadMosques]);
+    if (!locating) load(latitude, longitude);
+  }, [locating, latitude, longitude, load]);
 
-  const openUpdateModal = (mosque: Mosque) => {
-    setSelectedMosque(mosque);
-    setFajr(mosque.timings?.fajr || '05:00');
-    setDhuhr(mosque.timings?.dhuhr || '13:30');
-    setAsr(mosque.timings?.asr || '17:00');
-    setMaghrib(mosque.timings?.maghrib || '19:15');
-    setIsha(mosque.timings?.isha || '20:45');
-    setJummah(mosque.timings?.jummah || '13:30');
-    setShowUpdateModal(true);
-  };
-
-  // Update timings in local storage
-  const handleUpdateTimings = async () => {
-    if (!selectedMosque) return;
-    
-    setUpdatingState(true);
-    try {
-      const timings = {
-        fajr,
-        dhuhr,
-        asr,
-        maghrib,
-        isha,
-        jummah
-      };
-
-      await AsyncStorage.setItem(
-        `ummati_jamat_times_${selectedMosque.id}`,
-        JSON.stringify(timings)
-      );
-
-      Alert.alert('Success', 'Mosque Jamat times updated successfully!');
-      setShowUpdateModal(false);
-      loadMosques();
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Failed to update timings.');
-    } finally {
-      setUpdatingState(false);
-    }
-  };
-
-  const openDirections = (lat: number, lng: number, label: string) => {
-    const scheme = Platform.select({
-      ios: 'maps:0,0?q=',
-      android: 'geo:0,0?q='
-    });
-    const latLng = `${lat},${lng}`;
-    const url = Platform.select({
-      ios: `${scheme}${label}@${latLng}`,
-      android: `${scheme}${latLng}(${label})`
-    });
-
-    if (url) {
-      Linking.canOpenURL(url).then(supported => {
-        if (supported) {
-          Linking.openURL(url);
-        } else {
-          const webUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-          Linking.openURL(webUrl);
-        }
-      }).catch(() => {
-        const webUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-        Linking.openURL(webUrl);
-      });
-    }
-  };
-
-  const getNextJamatName = (timings?: Mosque['timings']) => {
-    if (!timings) return '';
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const parseToMinutes = (timeStr: string) => {
-      const parts = timeStr.trim().split(':');
-      if (parts.length < 2) return 0;
-      const [h, m] = parts.map(Number);
-      if (isNaN(h) || isNaN(m)) return 0;
-      return h * 60 + m;
-    };
-
-    const order = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
-    for (const key of order) {
-      const val = timings[key as keyof typeof timings];
-      if (val && val !== '--:--') {
-        const tMinutes = parseToMinutes(val);
-        if (tMinutes > nowMinutes) {
-          return key;
-        }
-      }
-    }
-    return 'fajr'; // default next day Fajr
-  };
-
-  // Format timings safely
-  const renderTimingBlock = (label: string, time: string | undefined, isNext: boolean) => (
-    <View style={[styles.timeBlock, isNext && styles.timeBlockNext]}>
-      <Text style={[styles.timeBlockLabel, isNext && styles.timeBlockLabelNext]}>{label}</Text>
-      <Text style={[styles.timeBlockVal, isNext && styles.timeBlockValNext]}>{time || '--:--'}</Text>
-      {isNext && (
-        <View style={styles.nextDotBadge}>
-          <Text style={styles.nextDotText}>NEXT</Text>
-        </View>
-      )}
-    </View>
+  // Sorted by distance from where the search was made (stable order), distances shown live
+  const sorted = useMemo(
+    () => [...mosques].sort((a, b) =>
+      distanceMeters(latitude, longitude, a.latitude, a.longitude) - distanceMeters(latitude, longitude, b.latitude, b.longitude)),
+    [mosques, latitude, longitude],
   );
 
-  const renderMosqueCard = ({ item }: { item: Mosque }) => {
-    const nextJamat = getNextJamatName(item.timings);
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return sorted.filter((m) => {
+      if (q && !m.name.toLowerCase().includes(q) && !m.address.toLowerCase().includes(q)) return false;
+      if (filter === 'walk') return distanceMeters(latitude, longitude, m.latitude, m.longitude) <= WALKABLE_M;
+      if (filter === 'saved') return savedIds.includes(m.id);
+      if (filter === 'mine') return !m.isEstimated;
+      return true;
+    });
+  }, [sorted, query, filter, savedIds, latitude, longitude]);
+
+  const counts = useMemo(() => ({
+    all: sorted.length,
+    walk: sorted.filter((m) => distanceMeters(latitude, longitude, m.latitude, m.longitude) <= WALKABLE_M).length,
+    saved: sorted.filter((m) => savedIds.includes(m.id)).length,
+    mine: sorted.filter((m) => !m.isEstimated).length,
+  }), [sorted, savedIds, latitude, longitude]);
+
+  const distTo = useCallback((m: Mosque) => distanceMeters(live.latitude, live.longitude, m.latitude, m.longitude), [live]);
+
+  // Keep a valid selection: default to the nearest visible masjid
+  useEffect(() => {
+    if (tracking) return;
+    if (!visible.length) { setSelectedId(null); return; }
+    if (!selectedId || !visible.some((m) => m.id === selectedId)) setSelectedId(visible[0].id);
+  }, [visible, selectedId, tracking]);
+
+  // Frame the results whenever the result set itself changes
+  const visibleKey = visible.map((m) => m.id).join(',');
+  useEffect(() => {
+    if (!tracking && visible.length) {
+      const t = setTimeout(() => mapRef.current?.run({ type: 'fitAll' }), 250);
+      return () => clearTimeout(t);
+    }
+  }, [visibleKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const select = useCallback((id: string, from: 'map' | 'carousel' | 'list') => {
+    setSelectedId(id);
+    mapRef.current?.run({ type: 'focus', id });
+    if (from !== 'carousel') {
+      const idx = visible.findIndex((m) => m.id === id);
+      if (idx >= 0) carouselRef.current?.scrollToIndex({ index: idx, animated: from === 'map' });
+    }
+  }, [visible]);
+
+  const onMarkerPress = useCallback((id: string) => {
+    if (tracking) return;
+    haptic.select();
+    select(id, 'map');
+  }, [tracking, select]);
+
+  // ── Tracker ──
+  const fetchMode = useCallback(async (m: TravelMode, dest: Mosque, from: { latitude: number; longitude: number }) => {
+    setRoutes((r) => ({ ...r, [m]: r[m] && r[m] !== 'loading' ? r[m] : 'loading' }));
+    const res = await fetchRoute(m, from, dest);
+    setRoutes((r) => ({ ...r, [m]: res }));
+  }, []);
+
+  const startTracking = (m: Mosque) => {
+    haptic.medium();
+    const from = { latitude: live.latitude, longitude: live.longitude };
+    const d = distTo(m);
+    const firstMode: TravelMode = d <= WALKABLE_M ? 'walk' : 'car';
+    routeFrom.current = from;
+    arrivedFor.current = null;
+    setRoutes({ car: 'loading', bike: 'loading', walk: 'loading' });
+    setMode(firstMode);
+    setTracking(m);
+    setSelectedId(m.id);
+    setFollow(false);
+    MODES.forEach(({ key }) => fetchMode(key, m, from));
+  };
+
+  const stopTracking = () => {
+    setTracking(null);
+    setFollow(false);
+    setRoutes({ car: null, bike: null, walk: null });
+    setTimeout(() => mapRef.current?.run({ type: 'fitAll' }), 200);
+  };
+
+  const activeRoute = tracking && routes[mode] && routes[mode] !== 'loading' ? (routes[mode] as RouteInfo) : null;
+
+  // Fit the route once it first arrives for the chosen mode
+  const routeKey = activeRoute ? `${tracking?.id}-${mode}` : '';
+  const fittedRoute = useRef('');
+  useEffect(() => {
+    if (routeKey && fittedRoute.current !== routeKey && !follow) {
+      fittedRoute.current = routeKey;
+      setTimeout(() => mapRef.current?.run({ type: 'fitRoute' }), 150);
+    }
+  }, [routeKey, follow]);
+
+  // Live tracking: reroute after moving, and celebrate on arrival
+  useEffect(() => {
+    if (!tracking) return;
+    const d = distTo(tracking);
+    if (d <= ARRIVED_M && arrivedFor.current !== tracking.id) {
+      arrivedFor.current = tracking.id;
+      haptic.success();
+    }
+    const from = routeFrom.current;
+    if (from && distanceMeters(from.latitude, from.longitude, live.latitude, live.longitude) > REROUTE_M) {
+      routeFrom.current = { latitude: live.latitude, longitude: live.longitude };
+      fetchMode(mode, tracking, routeFrom.current);
+    }
+  }, [live, tracking, mode, distTo, fetchMode]);
+
+  const changeMode = (m: TravelMode) => {
+    haptic.select();
+    setMode(m);
+    fittedRoute.current = '';
+  };
+
+  // ── Actions ──
+  const toggleSaved = (m: Mosque) => {
+    haptic.select();
+    const next = savedIds.includes(m.id) ? savedIds.filter((id) => id !== m.id) : [...savedIds, m.id];
+    setSavedIds(next);
+    storeSavedIds(next).catch(() => {});
+  };
+
+  const shareMosque = (m: Mosque) => {
+    Share.share({ message: `🕌 ${m.name}${m.address ? `\n${m.address}` : ''}\n${mapsUrl(m)}\n\nShared via Ummati` });
+  };
+
+  const openExternal = (m: Mosque) => {
+    Linking.openURL(directionsUrl(m, mode)).catch(() => Linking.openURL(mapsUrl(m)));
+  };
+
+  const onTimesSaved = (id: string, timings: JamatTimings) => {
+    setMosques((list) => list.map((m) => (m.id === id ? { ...m, timings, isEstimated: false } : m)));
+    if (tracking?.id === id) setTracking((t) => (t ? { ...t, timings, isEstimated: false } : t));
+  };
+
+  const recenter = () => {
+    haptic.light();
+    if (tracking) setFollow(true);
+    mapRef.current?.run({ type: 'recenter' });
+  };
+
+  // ── Render helpers ──
+  const cardW = screenW - 56;
+  const snap = cardW + 12;
+
+  const statusText = locating
+    ? 'Finding your location…'
+    : loadState === 'loading' && !mosques.length
+      ? 'Searching for masjids nearby…'
+      : loadState === 'error'
+        ? "Couldn't reach map servers"
+        : `${sorted.length} masjid${sorted.length === 1 ? '' : 's'} within ${radius / 1000} km${fromCache ? ' · offline' : ''}`;
+
+  const mapMosques = useMemo(
+    () => (tracking ? [tracking] : visible).map((m) => ({ id: m.id, name: m.name, latitude: m.latitude, longitude: m.longitude, saved: savedIds.includes(m.id) })),
+    [tracking, visible, savedIds],
+  );
+
+  const renderCard = ({ item, index }: { item: Mosque; index: number }) => {
+    const d = distTo(item);
+    const nj = nextJamat(item.timings);
+    const saved = savedIds.includes(item.id);
     return (
-      <View style={styles.card}>
-        <View style={styles.cardInfoRow}>
-          <Image
-            source={require('../../../assets/images/mosque_thumbnail.png')}
-            style={styles.mosqueThumbnail}
-          />
-          <View style={styles.mosqueDetailsCol}>
-            <View style={styles.mosqueNameRow}>
-              <Text style={styles.mosqueName} numberOfLines={1}>{item.name}</Text>
-              <View style={styles.distanceBadge}>
-                <Text style={styles.distanceBadgeText}>{item.distance} km</Text>
+      <View style={{ width: cardW, marginRight: 12 }}>
+        <BrutalBox fill={colors.surface} radius={22} style={styles.card}>
+          <Pressable onPress={() => select(item.id, 'carousel')}>
+            <View style={styles.cardTop}>
+              <View style={[styles.rankTile, { backgroundColor: index === 0 && filter === 'all' && !query ? colors.accent : tints.teal, borderColor: colors.ink }]}>
+                <Text style={styles.rankNum}>{index + 1}</Text>
+                <Text style={styles.rankSub}>{index === 0 && filter === 'all' && !query ? 'NEAREST' : 'MASJID'}</Text>
+              </View>
+              <View style={styles.flex}>
+                <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={2}>{item.name}</Text>
+                <View style={styles.addrRow}>
+                  <MapPin color={colors.textMuted} size={12} />
+                  <Text style={[styles.addr, { color: colors.textSecondary }]} numberOfLines={1}>{item.address || 'Tap Directions for the exact spot'}</Text>
+                </View>
+              </View>
+              <PressableScale onPress={() => toggleSaved(item)} hapticOnPress={false} style={[styles.iconBtnSm, { backgroundColor: saved ? tints.rose : colors.surfaceAlt, borderColor: colors.ink }]}>
+                {saved ? <BookmarkCheck color={INK} size={16} strokeWidth={2.4} /> : <Bookmark color={colors.text} size={16} strokeWidth={2.4} />}
+              </PressableScale>
+            </View>
+
+            <View style={styles.chipRow}>
+              <View style={[styles.chip, { backgroundColor: tints.blue, borderColor: colors.ink }]}>
+                <Navigation color={INK} size={11} strokeWidth={2.6} />
+                <Text style={styles.chipText}>{formatDistance(d)}</Text>
+              </View>
+              <View style={[styles.chip, { backgroundColor: tints.green, borderColor: colors.ink }]}>
+                <Footprints color={INK} size={11} strokeWidth={2.6} />
+                <Text style={styles.chipText}>~{formatDuration(estimateWalkSeconds(d))}</Text>
+              </View>
+              <View style={[styles.chip, { backgroundColor: item.isEstimated ? tints.gold : tints.violet, borderColor: colors.ink }]}>
+                {item.isEstimated ? <Clock color={INK} size={11} strokeWidth={2.6} /> : <BadgeCheck color={INK} size={11} strokeWidth={2.6} />}
+                <Text style={styles.chipText}>{JAMAT_LABELS[nj.key]} {nj.time}</Text>
               </View>
             </View>
-            <View style={styles.mosqueAddrRow}>
-              <MapPin color={Theme.colors.textMuted} size={14} style={{ marginRight: 4 }} />
-              <Text style={styles.mosqueAddr} numberOfLines={1}>{item.address}</Text>
-            </View>
-            <View style={styles.estimatedStatusRow}>
-              <View style={item.isEstimated ? styles.estimatedBadge : styles.verifiedBadge}>
-                <Text style={item.isEstimated ? styles.estimatedBadgeText : styles.verifiedBadgeText}>
-                  {item.isEstimated ? '⚠️ Estimated Jamat' : '✅ Verified Jamat'}
-                </Text>
-              </View>
-            </View>
+          </Pressable>
+
+          <View style={styles.cardActions}>
+            <BrutalPressable fill={colors.primary} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.dirBtn} onPress={() => startTracking(item)}>
+              <Navigation color={INK} size={16} strokeWidth={2.6} />
+              <Text style={styles.dirText}>Directions</Text>
+            </BrutalPressable>
+            <BrutalPressable fill={colors.accentSoft} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.sqBtn} onPress={() => setEditing(item)}>
+              <Pencil color={INK} size={16} strokeWidth={2.4} />
+            </BrutalPressable>
+            <BrutalPressable fill={colors.surfaceAlt} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.sqBtn} onPress={() => shareMosque(item)}>
+              <Share2 color={colors.text} size={16} strokeWidth={2.4} />
+            </BrutalPressable>
           </View>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.timingsScrollContent}
-          style={styles.timingsScrollContainer}
-        >
-          {renderTimingBlock('Fajr', item.timings?.fajr, nextJamat === 'fajr')}
-          {renderTimingBlock('Dhuhr', item.timings?.dhuhr, nextJamat === 'dhuhr')}
-          {renderTimingBlock('Asr', item.timings?.asr, nextJamat === 'asr')}
-          {renderTimingBlock('Maghrib', item.timings?.maghrib, nextJamat === 'maghrib')}
-          {renderTimingBlock('Isha', item.timings?.isha, nextJamat === 'isha')}
-          {renderTimingBlock('Jummah', item.timings?.jummah, false)}
-        </ScrollView>
-
-        <View style={styles.cardActionsRow}>
-          <TouchableOpacity 
-            style={styles.directionsBtn} 
-            onPress={() => openMapSheet(item)}
-            activeOpacity={0.8}
-          >
-            <Compass color={Theme.colors.white} size={15} />
-            <Text style={styles.directionsBtnText}>Directions</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.updateCardBtn} 
-            onPress={() => openUpdateModal(item)}
-            activeOpacity={0.8}
-          >
-            <Edit color={Theme.colors.primary} size={15} />
-            <Text style={styles.updateCardBtnText}>Jamat Times</Text>
-          </TouchableOpacity>
-        </View>
+        </BrutalBox>
       </View>
     );
   };
 
-  const navigation = useNavigation();
+  const renderBottom = () => {
+    if (tracking) return renderTracker();
+    if ((locating || loadState === 'loading') && !mosques.length) {
+      return (
+        statusCard({
+          icon: <ActivityIndicator color={INK} />,
+          tint: tints.teal,
+          title: locating ? 'Locating you' : 'Searching nearby',
+          text: locating ? 'Getting your GPS position…' : 'Looking for masjids around you… the first search can take up to 30 seconds.',
+        })
+      );
+    }
+    if (loadState === 'error') {
+      return (
+        statusCard({
+          icon: <WifiOff color={INK} size={22} />,
+          tint: tints.rose,
+          title: "Couldn't load masjids",
+          text: "The map servers didn't respond. Check your internet and try again.",
+          action: "Try again",
+          onAction: () => load(latitude, longitude),
+        })
+      );
+    }
+    if (!visible.length) {
+      return (
+        statusCard({
+          icon: <MapPin color={INK} size={22} />,
+          tint: tints.gold,
+          title: query ? 'No matches' : filter === 'saved' ? 'Nothing saved yet' : filter === 'mine' ? 'No times added yet' : 'No masjids found',
+          text: query ? `Nothing nearby matches "${query}".`
+            : filter === 'saved' ? 'Tap the bookmark on a masjid to keep it here.'
+              : filter === 'mine' ? 'Tap ✏️ on a masjid to enter its real Jamat times.'
+                : filter === 'walk' ? `No masjid within ${WALKABLE_M / 1000} km walking distance.`
+                  : `No masjids are mapped within ${radius / 1000} km of you.`,
+          action: query || filter !== 'all' ? 'Show all' : undefined,
+          onAction: () => { setQuery(''); setFilter('all'); },
+        })
+      );
+    }
+    return (
+      <FlatList
+        ref={carouselRef}
+        data={visible}
+        keyExtractor={(m) => m.id}
+        renderItem={renderCard}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={snap}
+        decelerationRate="fast"
+        contentContainerStyle={{ paddingHorizontal: 22, paddingRight: 22 + brutal.shadow }}
+        getItemLayout={(_, i) => ({ length: snap, offset: snap * i, index: i })}
+        onMomentumScrollEnd={(e) => {
+          const idx = Math.round(e.nativeEvent.contentOffset.x / snap);
+          const m = visible[Math.min(Math.max(idx, 0), visible.length - 1)];
+          if (m && m.id !== selectedId) { haptic.select(); select(m.id, 'carousel'); }
+        }}
+        keyboardShouldPersistTaps="handled"
+      />
+    );
+  };
 
-  // Filter and sort mosques dynamically
-  const filteredMosques = mosques
-    .filter(m => {
-      const matchesSearch =
-        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.address.toLowerCase().includes(searchQuery.toLowerCase());
-      if (!matchesSearch) return false;
-
-      // Filter chips
-      const numId = parseInt(m.id.replace('osm-', ''), 10) || 0;
-      if (activeFilter === 'Open') {
-        return numId % 2 === 0;
-      }
-      if (activeFilter === 'Jumu\'ah') {
-        return numId % 5 !== 0;
-      }
-      if (activeFilter === 'Women') {
-        return numId % 3 === 0;
-      }
-      if (activeFilter === 'Parking') {
-        return numId % 4 === 0;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (activeFilter === 'Nearest') {
-        return (a.distance || 0) - (b.distance || 0);
-      }
-      return 0;
-    });
-
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft color={Theme.colors.text} size={24} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Mosques Directory</Text>
-        <TouchableOpacity onPress={() => Alert.alert('Filters', 'Open filter settings...')} style={styles.filterHeaderBtn}>
-          <SlidersHorizontal color={Theme.colors.primary} size={20} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Modern Search Bar */}
-      {!locationLoading && (
-        <View style={styles.searchBarContainer}>
-          <View style={styles.searchBar}>
-            <Search color={Theme.colors.textMuted} size={18} style={styles.searchIcon} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by mosque name or address..."
-              placeholderTextColor={Theme.colors.textMuted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
-                <X color={Theme.colors.textSecondary} size={16} />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={loadMosques} style={styles.gpsTargetBtn}>
-              <Compass color={Theme.colors.primary} size={18} />
-            </TouchableOpacity>
+  // Plain render functions (not components) so live location updates don't remount them
+  function statusCard({ icon, tint, title, text, action, onAction }: {
+    icon: React.ReactNode; tint: string; title: string; text: string; action?: string; onAction?: () => void;
+  }) {
+    return (
+      <View style={styles.hPad}>
+        <BrutalBox fill={colors.surface} radius={22} style={styles.statusCard}>
+          <View style={[styles.statusIcon, { backgroundColor: tint, borderColor: colors.ink }]}>{icon}</View>
+          <View style={styles.flex}>
+            <Text style={[styles.statusTitle, { color: colors.text }]}>{title}</Text>
+            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{text}</Text>
           </View>
-        </View>
-      )}
+          {action ? (
+            <BrutalPressable fill={colors.accent} radius={12} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.statusBtn} onPress={onAction}>
+              <Text style={styles.statusBtnText}>{action}</Text>
+            </BrutalPressable>
+          ) : null}
+        </BrutalBox>
+      </View>
+    );
+  }
 
-      {/* Sticky Filter Row */}
-      {!locationLoading && (
-        <View style={styles.filterRowContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollContent}>
-            {['Nearest', 'Open', 'Jumu\'ah', 'Women', 'Parking'].map((filter) => {
-              const isActive = activeFilter === filter;
-              return (
-                <TouchableOpacity
-                  key={filter}
-                  style={[styles.filterChip, isActive && styles.filterChipActive]}
-                  onPress={() => setActiveFilter(filter as any)}
-                >
-                  <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                    {filter}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+  function renderTracker() {
+    if (!tracking) return null;
+    const straight = distTo(tracking);
+    const arrived = straight <= ARRIVED_M;
+    const r = routes[mode];
+    const remaining = r && r !== 'loading' ? r.distance : straight;
+    const eta = r && r !== 'loading' ? new Date(Date.now() + r.duration * 1000) : null;
+    return (
+      <Animated.View entering={FadeInUp.duration(260)} style={styles.hPad}>
+        <BrutalBox fill={colors.surface} radius={24} style={styles.tracker}>
+          <View style={styles.trackerHead}>
+            <View style={[styles.trackerIcon, { backgroundColor: arrived ? colors.primary : colors.accent, borderColor: colors.ink }]}>
+              {arrived ? <Flag color={INK} size={18} strokeWidth={2.6} /> : <Navigation color={INK} size={18} strokeWidth={2.6} />}
+            </View>
+            <View style={styles.flex}>
+              <Text style={[styles.trackerEyebrow, { color: colors.textMuted }]}>{arrived ? 'YOU HAVE ARRIVED' : 'HEADING TO'}</Text>
+              <Text style={[styles.trackerName, { color: colors.text }]} numberOfLines={1}>{tracking.name}</Text>
+            </View>
+            <PressableScale onPress={stopTracking} style={[styles.iconBtnSm, { backgroundColor: colors.surfaceAlt, borderColor: colors.ink }]}>
+              <X color={colors.text} size={17} strokeWidth={2.6} />
+            </PressableScale>
+          </View>
 
-      {locationLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={Theme.colors.primary} />
-          <Text style={styles.loadingText}>Locating nearby mosques...</Text>
-        </View>
-      ) : (
-        <View style={{ flex: 1 }}>
-          {loading ? (
-            <View style={styles.centerContainer}>
-              <ActivityIndicator size="small" color={Theme.colors.primary} />
-              <Text style={styles.loadingText}>Searching map for mosques...</Text>
+          {arrived ? (
+            <View style={[styles.arrivedBox, { backgroundColor: colors.primarySoft, borderColor: colors.ink }]}>
+              <Text style={[styles.arrivedTitle, { color: colors.text }]}>Assalamu Alaikum 🕌</Text>
+              <Text style={[styles.arrivedText, { color: colors.textSecondary }]}>
+                Enter with your right foot and say: “Allahumma-ftah li abwaba rahmatik.”
+              </Text>
             </View>
           ) : (
-            <FlatList
-              data={filteredMosques}
-              renderItem={renderMosqueCard}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.listContainer}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <MapPin color={Theme.colors.textMuted} size={48} />
-                  <Text style={styles.emptyText}>
-                    {searchQuery ? 'No matching mosques found.' : 'No mosques found within 10 km.'}
-                  </Text>
+            <>
+              <View style={[styles.modeRow, { backgroundColor: colors.surfaceAlt, borderColor: colors.ink }]}>
+                {MODES.map(({ key, label, Icon }) => {
+                  const on = key === mode;
+                  const mr = routes[key];
+                  return (
+                    <PressableScale
+                      key={key}
+                      hapticOnPress={false}
+                      onPress={() => changeMode(key)}
+                      style={[styles.modeBtn, on && { backgroundColor: colors.primary, borderColor: colors.ink }]}
+                    >
+                      <Icon color={on ? INK : colors.textSecondary} size={17} strokeWidth={2.4} />
+                      {mr === 'loading'
+                        ? <ActivityIndicator size="small" color={on ? INK : colors.textMuted} style={styles.modeSpinner} />
+                        : <Text style={[styles.modeEta, { color: on ? INK : colors.textSecondary }]}>{mr ? formatDuration(mr.duration) : label}</Text>}
+                    </PressableScale>
+                  );
+                })}
+              </View>
+
+              <View style={styles.statsRow}>
+                <View style={[styles.stat, { backgroundColor: tints.blue, borderColor: colors.ink }]}>
+                  <Text style={styles.statLabel}>DISTANCE</Text>
+                  <Text style={styles.statVal}>{formatDistance(remaining)}</Text>
                 </View>
-              }
-            />
+                <View style={[styles.stat, { backgroundColor: tints.green, borderColor: colors.ink }]}>
+                  <Text style={styles.statLabel}>ARRIVE BY</Text>
+                  <Text style={styles.statVal}>{eta ? eta.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : r === 'loading' ? '…' : '—'}</Text>
+                </View>
+                <View style={[styles.stat, { backgroundColor: tints.gold, borderColor: colors.ink }]}>
+                  <Text style={styles.statLabel}>NEXT JAMAT</Text>
+                  <Text style={styles.statVal}>{nextJamat(tracking.timings).time}</Text>
+                </View>
+              </View>
+              <Text style={[styles.trackerNote, { color: colors.textMuted }]}>
+                {r === null ? 'Route unavailable — showing straight-line distance.' : mode === 'car' ? 'Live tracking on · times exclude traffic' : 'Live tracking on · updates as you move'}
+              </Text>
+            </>
           )}
-        </View>
-      )}
 
-      {/* Update Timings Modal */}
-      <Modal visible={showUpdateModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Update Jamat Timings</Text>
-            <Text style={styles.modalSub}>{selectedMosque?.name}</Text>
-
-            <View style={styles.timingsFormGrid}>
-              <View style={styles.formItem}>
-                <Text style={styles.formLabel}>Fajr</Text>
-                <TextInput style={styles.formInput} value={fajr} onChangeText={setFajr} placeholder="e.g. 05:15" placeholderTextColor={Theme.colors.textMuted} />
-              </View>
-              <View style={styles.formItem}>
-                <Text style={styles.formLabel}>Dhuhr</Text>
-                <TextInput style={styles.formInput} value={dhuhr} onChangeText={setDhuhr} placeholder="e.g. 13:30" placeholderTextColor={Theme.colors.textMuted} />
-              </View>
-              <View style={styles.formItem}>
-                <Text style={styles.formLabel}>Asr</Text>
-                <TextInput style={styles.formInput} value={asr} onChangeText={setAsr} placeholder="e.g. 17:00" placeholderTextColor={Theme.colors.textMuted} />
-              </View>
-              <View style={styles.formItem}>
-                <Text style={styles.formLabel}>Maghrib</Text>
-                <TextInput style={styles.formInput} value={maghrib} onChangeText={setMaghrib} placeholder="e.g. 19:15" placeholderTextColor={Theme.colors.textMuted} />
-              </View>
-              <View style={styles.formItem}>
-                <Text style={styles.formLabel}>Isha</Text>
-                <TextInput style={styles.formInput} value={isha} onChangeText={setIsha} placeholder="e.g. 20:45" placeholderTextColor={Theme.colors.textMuted} />
-              </View>
-              <View style={styles.formItem}>
-                <Text style={styles.formLabel}>Jummah</Text>
-                <TextInput style={styles.formInput} value={jummah} onChangeText={setJummah} placeholder="e.g. 13:30" placeholderTextColor={Theme.colors.textMuted} />
-              </View>
-            </View>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnCancel]}
-                onPress={() => setShowUpdateModal(false)}
-              >
-                <Text style={styles.modalBtnCancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnSubmit]}
-                onPress={handleUpdateTimings}
-                disabled={updatingState}
-              >
-                {updatingState ? (
-                  <ActivityIndicator color={Theme.colors.white} />
-                ) : (
-                  <Text style={styles.modalBtnSubmitText}>Update Timings</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+          <View style={styles.cardActions}>
+            <BrutalPressable fill={colors.primary} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.dirBtn} onPress={() => openExternal(tracking)}>
+              <ExternalLink color={INK} size={16} strokeWidth={2.6} />
+              <Text style={styles.dirText}>Google Maps</Text>
+            </BrutalPressable>
+            {tracking.phone ? (
+              <BrutalPressable fill={tints.teal} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.sqBtn} onPress={() => Linking.openURL(`tel:${tracking.phone}`)}>
+                <Phone color={INK} size={16} strokeWidth={2.4} />
+              </BrutalPressable>
+            ) : null}
+            <BrutalPressable fill={colors.accentSoft} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.sqBtn} onPress={() => setEditing(tracking)}>
+              <Clock color={INK} size={16} strokeWidth={2.4} />
+            </BrutalPressable>
+            <BrutalPressable fill={colors.surfaceAlt} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.sqBtn} onPress={() => shareMosque(tracking)}>
+              <Share2 color={colors.text} size={16} strokeWidth={2.4} />
+            </BrutalPressable>
           </View>
-        </View>
-      </Modal>
+        </BrutalBox>
+      </Animated.View>
+    );
+  }
 
-      {/* Draggable Bottom Sheet Map View Modal */}
-      {selectedMapMosque && (
-        <Modal
-          visible={showMapSheet}
-          transparent
-          animationType="slide"
-          onRequestClose={closeMapSheet}
-        >
-          <View style={styles.sheetOverlay}>
-            <TouchableOpacity style={styles.sheetDismissArea} onPress={closeMapSheet} activeOpacity={1} />
-            <View style={[styles.sheetContent, isMapExpanded && styles.sheetContentExpanded]}>
-              <View style={styles.dragHandle} />
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <MosqueMap
+        ref={mapRef}
+        user={live}
+        mosques={mapMosques}
+        selectedId={tracking ? tracking.id : selectedId}
+        route={activeRoute?.path ?? null}
+        dashedRoute={mode === 'walk'}
+        follow={!!tracking && follow}
+        padding={mapPadding}
+        onSelect={onMarkerPress}
+        onUserPan={() => setFollow(false)}
+      />
 
-              <View style={styles.sheetHeader}>
-                <View style={styles.sheetTitleBox}>
-                  <Text style={styles.sheetTitle} numberOfLines={1}>{selectedMapMosque.name}</Text>
-                  <Text style={styles.sheetDistance}>{selectedMapMosque.distance} km away</Text>
-                </View>
-                <TouchableOpacity onPress={closeMapSheet} style={styles.sheetCloseBtn}>
-                  <X color={Theme.colors.text} size={20} />
-                </TouchableOpacity>
-              </View>
+      {/* Top: search + filters + status */}
+      <View style={[styles.top, { paddingTop: insets.top + 8 }]} pointerEvents="box-none" onLayout={(e) => setTopH(e.nativeEvent.layout.height)}>
+        <Animated.View entering={FadeInDown.duration(350)} style={styles.searchRow}>
+          {isStackScreen ? (
+            <BrutalPressable fill={colors.surface} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.backBtn} onPress={() => navigation.goBack()}>
+              <ChevronLeft color={colors.text} size={22} strokeWidth={2.6} />
+            </BrutalPressable>
+          ) : null}
+          <BrutalBox fill={colors.surface} radius={16} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.search}>
+            <Search color={colors.textMuted} size={18} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.text }]}
+              placeholder="Search masjids nearby"
+              placeholderTextColor={colors.textMuted}
+              value={query}
+              onChangeText={setQuery}
+              editable={!tracking}
+              returnKeyType="search"
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery('')} hitSlop={10} style={styles.searchClear}>
+                <X color={colors.text} size={16} />
+              </Pressable>
+            ) : null}
+          </BrutalBox>
+        </Animated.View>
 
-              <View style={styles.modesContainer}>
-                <TouchableOpacity
-                  style={[styles.modeBtn, mapTravelMode === 'car' && styles.modeBtnActive]}
-                  onPress={() => setMapTravelMode('car')}
-                >
-                  <Car color={mapTravelMode === 'car' ? Theme.colors.white : Theme.colors.textSecondary} size={20} />
-                </TouchableOpacity>
+        {!tracking ? (
+          <Animated.View entering={FadeIn.delay(120).duration(300)}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters} keyboardShouldPersistTaps="handled">
+              {FILTERS.map((f) => {
+                const on = f.key === filter;
+                return (
+                  <PressableScale
+                    key={f.key}
+                    hapticOnPress={false}
+                    onPress={() => { haptic.select(); setFilter(f.key); }}
+                    style={[styles.filterChip, { backgroundColor: on ? colors.accent : colors.surface, borderColor: colors.ink }]}
+                  >
+                    <Text style={[styles.filterText, { color: on ? INK : colors.text }]}>{f.label}</Text>
+                    <View style={[styles.filterCount, { backgroundColor: on ? colors.surface : colors.surfaceAlt }]}>
+                      <Text style={[styles.filterCountText, { color: colors.text }]}>{counts[f.key]}</Text>
+                    </View>
+                  </PressableScale>
+                );
+              })}
+            </ScrollView>
 
-                <TouchableOpacity
-                  style={[styles.modeBtn, mapTravelMode === 'bike' && styles.modeBtnActive]}
-                  onPress={() => setMapTravelMode('bike')}
-                >
-                  <Bike color={mapTravelMode === 'bike' ? Theme.colors.white : Theme.colors.textSecondary} size={20} />
-                </TouchableOpacity>
+            <Pressable
+              onPress={isUsingFallback ? refreshLocation : loadState === 'error' ? () => load(latitude, longitude) : undefined}
+              style={[styles.statusPill, { backgroundColor: colors.surface, borderColor: colors.ink }]}
+            >
+              {loadState === 'loading' || locating
+                ? <ActivityIndicator size="small" color={colors.primary} style={styles.pillSpinner} />
+                : <View style={[styles.liveDot, { backgroundColor: loadState === 'error' ? colors.danger : fromCache ? colors.accent : colors.primary }]} />}
+              <Text style={[styles.statusPillText, { color: colors.text }]} numberOfLines={1}>
+                {isUsingFallback && !locating ? 'Location off · tap to enable' : statusText}
+              </Text>
+              {loadState === 'error' ? <RefreshCw color={colors.text} size={12} strokeWidth={2.6} /> : null}
+            </Pressable>
+          </Animated.View>
+        ) : null}
+      </View>
 
-                <TouchableOpacity
-                  style={[styles.modeBtn, mapTravelMode === 'walk' && styles.modeBtnActive]}
-                  onPress={() => setMapTravelMode('walk')}
-                >
-                  <Footprints color={mapTravelMode === 'walk' ? Theme.colors.white : Theme.colors.textSecondary} size={20} />
-                </TouchableOpacity>
+      {/* Right-side map buttons */}
+      <View style={[styles.fabs, { bottom: bottomOffset + bottomH + 14 }]} pointerEvents="box-none">
+        {!tracking && visible.length > 0 ? (
+          <BrutalPressable fill={colors.surface} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.fab} onPress={() => setListOpen(true)}>
+            <List color={colors.text} size={20} strokeWidth={2.4} />
+          </BrutalPressable>
+        ) : null}
+        <BrutalPressable fill={tracking && follow ? colors.primary : colors.surface} radius={14} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.fab} onPress={recenter}>
+          <LocateFixed color={tracking && follow ? INK : colors.text} size={20} strokeWidth={2.4} />
+        </BrutalPressable>
+      </View>
 
-                <TouchableOpacity
-                  style={[styles.modeBtn, mapTravelMode === 'transit' && styles.modeBtnActive]}
-                  onPress={() => setMapTravelMode('transit')}
-                >
-                  <Bus color={mapTravelMode === 'transit' ? Theme.colors.white : Theme.colors.textSecondary} size={20} />
-                </TouchableOpacity>
-              </View>
+      {/* Bottom: carousel / status / tracker */}
+      <View style={[styles.bottom, { bottom: bottomOffset }]} pointerEvents="box-none" onLayout={(e) => setBottomH(e.nativeEvent.layout.height)}>
+        {renderBottom()}
+      </View>
 
-              <View style={styles.routeDetailsBox}>
-                <Text style={styles.routeMainText}>
-                  Best route • {mapTravelMode === 'car' ? '4 min' : mapTravelMode === 'bike' ? '8 min' : mapTravelMode === 'walk' ? '15 min' : '10 min'} ({selectedMapMosque.distance} km)
-                </Text>
-                <Text style={styles.routeSubText}>Light traffic</Text>
-              </View>
+      <ListSheet
+        visible={listOpen}
+        mosques={visible}
+        savedIds={savedIds}
+        distTo={distTo}
+        onClose={() => setListOpen(false)}
+        onPick={(m) => { setListOpen(false); setTimeout(() => select(m.id, 'list'), 250); }}
+      />
 
-              <View style={[styles.mapContainer, isMapExpanded && styles.mapContainerExpanded]}>
-                <Svg width="100%" height="100%" viewBox="0 0 400 200" preserveAspectRatio="none">
-                  <Rect x="0" y="0" width="400" height="200" fill="#E8ECE9" rx={12} />
-                  <Line x1="50" y1="0" x2="50" y2="200" stroke="#FFFFFF" strokeWidth="8" />
-                  <Line x1="150" y1="0" x2="150" y2="200" stroke="#FFFFFF" strokeWidth="12" />
-                  <Line x1="250" y1="0" x2="250" y2="200" stroke="#FFFFFF" strokeWidth="10" />
-                  <Line x1="350" y1="0" x2="350" y2="200" stroke="#FFFFFF" strokeWidth="8" />
-                  <Line x1="0" y1="40" x2="400" y2="40" stroke="#FFFFFF" strokeWidth="12" />
-                  <Line x1="0" y1="100" x2="400" y2="100" stroke="#FFFFFF" strokeWidth="10" />
-                  <Line x1="0" y1="160" x2="400" y2="160" stroke="#FFFFFF" strokeWidth="8" />
-
-                  <Rect x="65" y="10" width="70" height="20" fill="#D2E3D6" rx={4} />
-                  <Rect x="265" y="110" width="70" height="40" fill="#D2E3D6" rx={6} />
-                  <Rect x="10" y="110" width="30" height="40" fill="#D2E3D6" rx={4} />
-
-                  <Path
-                    d="M 150 160 C 150 100, 250 100, 250 40"
-                    fill="none"
-                    stroke="#0E9F6E"
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-
-                  <Circle cx="150" cy="160" r="11" fill="#FFFFFF" />
-                  <Circle cx="150" cy="160" r="8" fill="#3B82F6" />
-                  
-                  <G transform="translate(250, 40)">
-                    <Circle cx="0" cy="0" r="14" fill="#046C4E" stroke="#FFFFFF" strokeWidth="2" />
-                    <Path
-                      d="M -5 3 C -5 -2, -3 -4, 0 -5 C 3 -4, 5 -2, 5 3 Z"
-                      fill="#FFFFFF"
-                    />
-                    <Rect x="-6" y="3" width="12" height="3" fill="#FFFFFF" />
-                  </G>
-                </Svg>
-
-                <TouchableOpacity
-                  style={styles.expandMapBtn}
-                  onPress={() => setIsMapExpanded(!isMapExpanded)}
-                >
-                  <Text style={styles.expandText}>{isMapExpanded ? 'Collapse ✕' : 'Expand ⤢'}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.sheetAddress}>{selectedMapMosque.address}</Text>
-
-              <TouchableOpacity
-                style={styles.startNavBtn}
-                onPress={() => openDirections(selectedMapMosque.latitude, selectedMapMosque.longitude, selectedMapMosque.name)}
-                activeOpacity={0.8}
-              >
-                <Navigation color={Theme.colors.white} size={20} style={styles.navIcon} />
-                <Text style={styles.startNavText}>Start Navigation</Text>
-              </TouchableOpacity>
-
-              <View style={styles.secActionsRow}>
-                <TouchableOpacity style={styles.secActionBtn} onPress={() => Alert.alert('Shared', 'Directions link copied to clipboard.')}>
-                  <Share2 color={Theme.colors.textSecondary} size={16} />
-                  <Text style={styles.secActionText}>Share</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.secActionBtn} onPress={() => Alert.alert('Saved', 'Mosque saved to your bookmarks.')}>
-                  <Bookmark color={Theme.colors.textSecondary} size={16} />
-                  <Text style={styles.secActionText}>Save</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.secActionBtn} onPress={() => Linking.openURL('tel:123456789')}>
-                  <Phone color={Theme.colors.textSecondary} size={16} />
-                  <Text style={styles.secActionText}>Call</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
+      <TimesSheet mosque={editing} onClose={() => setEditing(null)} onSaved={onTimesSaved} />
     </View>
   );
 }
+
+/** Full list of results, nearest first. */
+function ListSheet({ visible, mosques, savedIds, distTo, onClose, onPick }: {
+  visible: boolean;
+  mosques: Mosque[];
+  savedIds: string[];
+  distTo: (m: Mosque) => number;
+  onClose: () => void;
+  onPick: (m: Mosque) => void;
+}) {
+  const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <Pressable style={styles.flex} onPress={onClose} />
+        <View style={[styles.sheet, styles.listSheet, { backgroundColor: colors.surface, borderColor: colors.ink, paddingBottom: insets.bottom + 12 }]}>
+          <View style={[styles.dragHandle, { backgroundColor: colors.ink }]} />
+          <View style={styles.sheetHeader}>
+            <Text style={[styles.sheetTitle, { color: colors.text }]}>Nearby masjids</Text>
+            <PressableScale onPress={onClose} style={[styles.iconBtnSm, { backgroundColor: colors.surfaceAlt, borderColor: colors.ink }]}>
+              <X color={colors.text} size={17} />
+            </PressableScale>
+          </View>
+          <FlatList
+            data={mosques}
+            keyExtractor={(m) => m.id}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item, index }) => {
+              const nj = nextJamat(item.timings);
+              return (
+                <Animated.View entering={FadeInDown.delay(Math.min(index * 30, 300)).duration(250)}>
+                  <PressableScale onPress={() => onPick(item)} style={[styles.listRow, { borderColor: colors.ink, backgroundColor: index % 2 ? colors.surface : colors.surfaceAlt }]}>
+                    <View style={[styles.listRank, { backgroundColor: index === 0 ? colors.accent : tints.teal, borderColor: colors.ink }]}>
+                      <Text style={styles.listRankText}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.flex}>
+                      <Text style={[styles.listName, { color: colors.text }]} numberOfLines={1}>
+                        {item.name}{savedIds.includes(item.id) ? '  🔖' : ''}
+                      </Text>
+                      <Text style={[styles.listMeta, { color: colors.textSecondary }]} numberOfLines={1}>
+                        {JAMAT_LABELS[nj.key]} {nj.time}{item.isEstimated ? ' (est.)' : ''}{item.address ? ` · ${item.address}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={[styles.listDist, { color: colors.text }]}>{formatDistance(distTo(item))}</Text>
+                  </PressableScale>
+                </Animated.View>
+              );
+            }}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** Edit a masjid's real Jamat times (stored on this device). */
+function TimesSheet({ mosque, onClose, onSaved }: {
+  mosque: Mosque | null;
+  onClose: () => void;
+  onSaved: (id: string, t: JamatTimings) => void;
+}) {
+  const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const [draft, setDraft] = useState<JamatTimings | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setDraft(mosque ? { ...mosque.timings } : null); }, [mosque]);
+
+  const valid = (v: string) => /^([01]?\d|2[0-3]):[0-5]\d$/.test(v.trim());
+
+  const save = async () => {
+    if (!mosque || !draft) return;
+    const bad = (Object.keys(draft) as (keyof JamatTimings)[]).filter((k) => !valid(draft[k]));
+    if (bad.length) {
+      Alert.alert('Check the times', `Use 24-hour HH:MM, e.g. 13:30. Fix: ${bad.map((k) => JAMAT_LABELS[k]).join(', ')}`);
+      return;
+    }
+    setSaving(true);
+    try {
+      const clean = Object.fromEntries(Object.entries(draft).map(([k, v]) => [k, v.trim().padStart(5, '0')])) as unknown as JamatTimings;
+      await saveJamatTimes(mosque.id, clean);
+      onSaved(mosque.id, clean);
+      haptic.success();
+      onClose();
+    } catch {
+      Alert.alert('Error', 'Could not save the times.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal visible={!!mosque} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetOverlay}>
+        <Pressable style={styles.flex} onPress={onClose} />
+        <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.ink, paddingBottom: insets.bottom + 20 }]}>
+          <View style={[styles.dragHandle, { backgroundColor: colors.ink }]} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.flex}>
+              <Text style={[styles.sheetEyebrow, { color: colors.textMuted }]}>JAMAT TIMES · 24-HOUR</Text>
+              <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={2}>{mosque?.name}</Text>
+            </View>
+            <PressableScale onPress={onClose} style={[styles.iconBtnSm, { backgroundColor: colors.surfaceAlt, borderColor: colors.ink }]}>
+              <X color={colors.text} size={17} />
+            </PressableScale>
+          </View>
+          {mosque?.isEstimated ? (
+            <Text style={[styles.sheetHint, { color: colors.textSecondary }]}>
+              These are estimates from prayer start times. Enter the masjid's real times to mark it ✓.
+            </Text>
+          ) : null}
+          <View style={styles.formGrid}>
+            {draft && (Object.keys(JAMAT_LABELS) as (keyof JamatTimings)[]).map((k) => (
+              <View key={k} style={styles.formItem}>
+                <Text style={[styles.formLabel, { color: colors.textMuted }]}>{JAMAT_LABELS[k].toUpperCase()}</Text>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.background, color: colors.text, ...outline(colors), borderColor: valid(draft[k]) ? colors.ink : colors.danger }]}
+                  value={draft[k]}
+                  onChangeText={(v) => setDraft((d) => (d ? { ...d, [k]: v } : d))}
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                  placeholder="HH:MM"
+                  placeholderTextColor={colors.textMuted}
+                />
+              </View>
+            ))}
+          </View>
+          <BrutalPressable fill={colors.primary} radius={16} style={styles.saveBtn} onPress={save} disabled={saving}>
+            {saving ? <ActivityIndicator color={INK} /> : <Text style={styles.saveText}>Save times</Text>}
+          </BrutalPressable>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  flex: { flex: 1 },
+  hPad: { paddingHorizontal: 18, paddingRight: 18 + brutal.shadow },
+
+  // Top overlay
+  top: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginRight: brutal.shadowSmall },
+  backBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  search: { flex: 1, height: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14 },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '700', padding: 0 },
+  searchClear: { padding: 4 },
+  filters: { gap: 8, paddingTop: 12, paddingBottom: 4, paddingRight: 16 },
+  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingLeft: 12, paddingRight: 5, borderRadius: 17, borderWidth: brutal.borderThin },
+  filterText: { fontSize: 12.5, fontWeight: '900' },
+  filterCount: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
+  filterCountText: { fontSize: 11, fontWeight: '900' },
+  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 11, height: 28, borderRadius: 14, borderWidth: brutal.borderThin },
+  pillSpinner: { transform: [{ scale: 0.7 }], width: 12 },
+  liveDot: { width: 8, height: 8, borderRadius: 4 },
+  statusPillText: { fontSize: 11.5, fontWeight: '800', maxWidth: 260 },
+
+  // Floating buttons
+  fabs: { position: 'absolute', right: 16 + brutal.shadowSmall, gap: 12 },
+  fab: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
+
+  // Bottom overlay
+  bottom: { position: 'absolute', left: 0, right: 0 },
+  card: { padding: 14 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  rankTile: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  rankNum: { fontSize: 20, fontWeight: '900', color: INK, lineHeight: 22 },
+  rankSub: { fontSize: 7.5, fontWeight: '900', color: INK, letterSpacing: 0.6 },
+  cardName: { fontSize: 16, fontWeight: '900', letterSpacing: -0.2, lineHeight: 20 },
+  addrRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  addr: { flex: 1, fontSize: 12, fontWeight: '600' },
+  iconBtnSm: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, height: 24, borderRadius: 12, borderWidth: 1.5 },
+  chipText: { fontSize: 11.5, fontWeight: '900', color: INK },
+  cardActions: { flexDirection: 'row', gap: 10, marginTop: 12, marginRight: brutal.shadowSmall },
+  dirBtn: { flex: 1, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  dirText: { fontSize: 14, fontWeight: '900', color: INK },
+  sqBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+
+  statusCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  statusIcon: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  statusTitle: { fontSize: 15.5, fontWeight: '900' },
+  statusText: { fontSize: 12.5, lineHeight: 17, marginTop: 2 },
+  statusBtn: { paddingHorizontal: 12, height: 36, justifyContent: 'center' },
+  statusBtnText: { fontSize: 12.5, fontWeight: '900', color: INK },
+
+  // Tracker
+  tracker: { padding: 14 },
+  trackerHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  trackerIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  trackerEyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  trackerName: { fontSize: 17, fontWeight: '900', letterSpacing: -0.2 },
+  modeRow: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: 16, marginTop: 12, borderWidth: brutal.borderThin },
+  modeBtn: { flex: 1, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 2, borderWidth: brutal.borderThin, borderColor: 'transparent' },
+  modeEta: { fontSize: 11, fontWeight: '900' },
+  modeSpinner: { transform: [{ scale: 0.7 }], height: 14 },
+  statsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  stat: { flex: 1, borderRadius: 14, paddingVertical: 8, alignItems: 'center', borderWidth: brutal.borderThin },
+  statLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 0.8, color: 'rgba(28,26,23,0.7)' },
+  statVal: { fontSize: 16, fontWeight: '900', color: INK, marginTop: 1, fontVariant: ['tabular-nums'] },
+  trackerNote: { fontSize: 11, fontWeight: '700', marginTop: 8, textAlign: 'center' },
+  arrivedBox: { marginTop: 12, padding: 12, borderRadius: 16, borderWidth: brutal.borderThin },
+  arrivedTitle: { fontSize: 16, fontWeight: '900' },
+  arrivedText: { fontSize: 12.5, lineHeight: 18, marginTop: 3 },
+
+  // Sheets
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 10, borderWidth: brutal.border, borderBottomWidth: 0 },
+  listSheet: { maxHeight: '78%' },
+  dragHandle: { width: 44, height: 5, borderRadius: 3, alignSelf: 'center', marginBottom: 14 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 },
+  sheetEyebrow: { fontSize: 10.5, fontWeight: '900', letterSpacing: 1.2, marginBottom: 3 },
+  sheetTitle: { fontSize: 20, fontWeight: '900', letterSpacing: -0.3, flexShrink: 1 },
+  sheetHint: { fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: 16, marginBottom: 8, borderWidth: brutal.borderThin },
+  listRank: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  listRankText: { fontSize: 14, fontWeight: '900', color: INK },
+  listName: { fontSize: 14.5, fontWeight: '900' },
+  listMeta: { fontSize: 11.5, fontWeight: '600', marginTop: 2 },
+  listDist: { fontSize: 13, fontWeight: '900' },
+  formGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
+  formItem: { width: '30%', flexGrow: 1, gap: 6 },
+  formLabel: { fontSize: 10.5, fontWeight: '900', letterSpacing: 0.6 },
+  formInput: { height: 46, borderRadius: 14, textAlign: 'center', fontSize: 16, fontWeight: '800' },
+  saveBtn: { height: 52, alignItems: 'center', justifyContent: 'center' },
+  saveText: { fontSize: 15, fontWeight: '900', color: INK },
+});

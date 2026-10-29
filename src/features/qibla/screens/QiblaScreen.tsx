@@ -1,18 +1,31 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Dimensions } from 'react-native';
-import { ArrowLeft, RefreshCw, Navigation } from 'lucide-react-native';
-import Svg, { Circle as SvgCircle, G, Line, Path, Text as SvgText } from 'react-native-svg';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { RefreshCw, Navigation, Info, TriangleAlert, MapPin, Compass, Hand, Check } from 'lucide-react-native';
+import Svg, { Circle as SvgCircle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocation } from '../../../core/hooks/useLocation';
 import { calculateQiblaDirection } from '../../../core/utils/QiblaCalculator';
-import { Theme } from '../../../core/theme/theme';
-import { useNavigation } from '@react-navigation/native';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const COMPASS_SIZE = SCREEN_WIDTH * 0.75;
+import { useAppTheme } from '../../../core/theme/ThemeProvider';
+import { brutal, type as T } from '../../../core/theme/palettes';
+import { BrutalBox, BrutalPressable, Card, GlassCard, HeaderButton, ScreenHeader, haptic, outline } from '../../../core/components/ui';
 
 // Kaaba Coordinates
 const KAABA_LAT = 21.422487;
 const KAABA_LNG = 39.826206;
+/** Degrees either side of the Qibla that count as "facing" it. */
+const ALIGN_TOLERANCE = 5;
+const KAABA_BLACK = '#17171A';
 
 // Haversine formula to calculate distance in km
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -29,8 +42,14 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return Math.round(R * c);
 };
 
+const POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const compassPoint = (deg: number) => POINTS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+
 export function QiblaScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const { width } = useWindowDimensions();
   const { latitude, longitude, loading: locationLoading, refreshLocation, isUsingFallback } = useLocation();
 
   const [qiblaAngle, setQiblaAngle] = useState(0);
@@ -38,6 +57,8 @@ export function QiblaScreen() {
   const [deviceHeading, setDeviceHeading] = useState(0);
   const [isSensorAvailable, setIsSensorAvailable] = useState(false);
   const [isManualMode, setIsManualMode] = useState(false);
+
+  const compassSize = Math.min(width - 64, 320);
 
   // Initialize location & Qibla math
   useEffect(() => {
@@ -50,7 +71,11 @@ export function QiblaScreen() {
     }
   }, [latitude, longitude, locationLoading]);
 
-  // Load and check Compass magnetometer sensor
+  // Load and check Compass magnetometer sensor.
+  // The sensor can fire dozens of times a second; re-rendering the whole screen for each reading made
+  // it stutter, so readings are coalesced to at most ~10 state updates/sec (always keeping the latest).
+  const pendingHeading = useRef<number | null>(null);
+  const headingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     let CompassHeading: any = null;
 
@@ -60,12 +85,16 @@ export function QiblaScreen() {
 
       if (CompassHeading) {
         setIsSensorAvailable(true);
-        const degree_update_rate = 1;
+        const degree_update_rate = 2;
 
         CompassHeading.start(degree_update_rate, ({ heading }: { heading: number }) => {
-          if (!isManualMode) {
-            setDeviceHeading(heading);
-          }
+          if (isManualMode) return;
+          pendingHeading.current = heading;
+          if (headingTimer.current) return;
+          headingTimer.current = setTimeout(() => {
+            headingTimer.current = null;
+            if (pendingHeading.current !== null) setDeviceHeading(Math.round(pendingHeading.current));
+          }, 100);
         });
       }
     } catch {
@@ -75,380 +104,358 @@ export function QiblaScreen() {
     }
 
     return () => {
+      if (headingTimer.current) clearTimeout(headingTimer.current);
+      headingTimer.current = null;
       if (CompassHeading) {
         CompassHeading.stop();
       }
     };
   }, [isManualMode]);
 
+  // --- Presentation: smooth dial rotation along the shortest path ---
+  const dialRotation = useSharedValue(0);
+  const cumulative = useRef(0);
+  useEffect(() => {
+    const current = ((cumulative.current % 360) + 360) % 360;
+    const delta = ((deviceHeading - current + 540) % 360) - 180;
+    cumulative.current += delta;
+    dialRotation.value = withTiming(-cumulative.current, { duration: 260, easing: Easing.out(Easing.quad) });
+  }, [deviceHeading, dialRotation]);
+  const dialStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${dialRotation.value}deg` }] }));
+
+  // Offset between where the device points and the Qibla (-180..180, + means turn right)
+  const offset = ((qiblaAngle - deviceHeading + 540) % 360) - 180;
+  const aligned = !locationLoading && Math.abs(offset) <= ALIGN_TOLERANCE;
+
+  const glow = useSharedValue(0);
+  const pulse = useSharedValue(1);
+  const wasAligned = useRef(false);
+  useEffect(() => {
+    glow.value = withTiming(aligned ? 1 : 0, { duration: 350 });
+    if (aligned) {
+      pulse.value = withRepeat(withSequence(withTiming(1.06, { duration: 900 }), withTiming(1, { duration: 900 })), -1, true);
+    } else {
+      pulse.value = withTiming(1, { duration: 300 });
+    }
+    if (aligned && !wasAligned.current) haptic.success();
+    wasAligned.current = aligned;
+  }, [aligned, glow, pulse]);
+  const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value, transform: [{ scale: pulse.value }] }));
+
+  // Static dial ticks: built once per theme so heading updates don't re-create 72 SVG lines
+  const tickLines = useMemo(() => Array.from({ length: 72 }, (_, i) => {
+    const deg = i * 5;
+    const major = deg % 30 === 0;
+    const a = (deg * Math.PI) / 180;
+    const outer = 93;
+    const inner = major ? 83 : 88;
+    return (
+      <Line
+        key={i}
+        x1={100 + inner * Math.sin(a)}
+        y1={100 - inner * Math.cos(a)}
+        x2={100 + outer * Math.sin(a)}
+        y2={100 - outer * Math.cos(a)}
+        stroke={major ? colors.text : colors.textMuted}
+        strokeOpacity={major ? 0.9 : 0.5}
+        strokeWidth={major ? 1.6 : 0.8}
+        strokeLinecap="round"
+      />
+    );
+  }), [colors.text, colors.textMuted]);
+
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft color={Theme.colors.text} size={24} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Qibla Compass</Text>
-        <TouchableOpacity onPress={refreshLocation} style={styles.backBtn}>
-          <RefreshCw color={Theme.colors.text} size={20} />
-        </TouchableOpacity>
-      </View>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScreenHeader
+        title="Qibla"
+        subtitle={isUsingFallback ? 'Using fallback location (Makkah)' : 'Face the Kaaba from anywhere'}
+        onBack={() => navigation.goBack()}
+        right={
+          <HeaderButton onPress={refreshLocation}>
+            <RefreshCw color={colors.onSky} size={20} strokeWidth={2.4} />
+          </HeaderButton>
+        }
+      >
+        {!locationLoading && (
+          <Animated.View entering={FadeInDown.delay(120).duration(450)} style={styles.statsRow}>
+            <GlassCard style={styles.statCard}>
+              <Text style={[styles.statLabel, { color: colors.onSkyMuted }]}>DISTANCE TO KAABA</Text>
+              <Text style={[styles.statValue, { color: colors.onSky }]}>{distanceToKaaba.toLocaleString()} km</Text>
+            </GlassCard>
+            <GlassCard style={styles.statCard}>
+              <Text style={[styles.statLabel, { color: colors.onSkyMuted }]}>QIBLA BEARING</Text>
+              <Text style={[styles.statValue, { color: colors.onSky }]}>
+                {Math.round(qiblaAngle)}° {compassPoint(qiblaAngle)}
+              </Text>
+            </GlassCard>
+          </Animated.View>
+        )}
+      </ScreenHeader>
 
       {locationLoading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={Theme.colors.primary} />
-          <Text style={styles.loadingText}>Fetching GPS Coordinates...</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Fetching GPS Coordinates...</Text>
         </View>
       ) : (
-        <View style={styles.content}>
-          {/* Proximity Stats Card */}
-          <View style={styles.statsCard}>
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Distance to Kaaba</Text>
-              <Text style={styles.statValue}>{distanceToKaaba.toLocaleString()} km</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Qibla Bearing</Text>
-              <Text style={styles.statValue}>{Math.round(qiblaAngle)}° {qiblaAngle > 180 ? 'W' : 'E'}</Text>
-            </View>
-          </View>
+        <Animated.ScrollView
+          entering={FadeIn.duration(300)}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Heading readout */}
+          <Animated.View entering={FadeInDown.delay(150).duration(450)} style={styles.readout}>
+            <Text style={[styles.readoutDeg, { color: aligned ? colors.success : colors.text }]}>
+              {Math.round(((deviceHeading % 360) + 360) % 360)}°
+            </Text>
+            <Text style={[styles.readoutPoint, { color: colors.textMuted }]}>{compassPoint(deviceHeading)}</Text>
+          </Animated.View>
 
-          {/* Compass Dial Outer Container */}
-          <View style={styles.compassWrapper}>
-            {/* Alignment Guideline Marker */}
-            <View style={styles.northMarker} />
-
-            {/* Compass Disk (Rotating Dial) */}
-            <View
+          {/* Compass */}
+          <Animated.View
+            entering={FadeInDown.delay(220).duration(500)}
+            style={[styles.compassWrapper, { width: compassSize + 36, height: compassSize + 36 }]}
+          >
+            {/* Alignment glow */}
+            <Animated.View
+              pointerEvents="none"
               style={[
-                styles.compassDisk,
-                { transform: [{ rotate: `${-deviceHeading}deg` }] },
+                styles.glow,
+                {
+                  width: compassSize + 24,
+                  height: compassSize + 24,
+                  borderRadius: (compassSize + 24) / 2,
+                  backgroundColor: colors.primarySoft,
+                  borderColor: colors.ink,
+                },
+                glowStyle,
+              ]}
+            />
+
+            {/* Hard shadow stays put while the dial rotates */}
+            <View
+              pointerEvents="none"
+              style={[
+                styles.dialShadow,
+                { width: compassSize, height: compassSize, borderRadius: compassSize / 2, backgroundColor: colors.ink },
+              ]}
+            />
+
+            {/* Fixed device pointer */}
+            <View style={styles.pointer}>
+              <Svg width={22} height={18} viewBox="0 0 22 18">
+                <Path d="M11 17 L1.5 1.5 L20.5 1.5 Z" fill={aligned ? colors.success : colors.accent} stroke={colors.ink} strokeWidth={2.5} strokeLinejoin="round" />
+              </Svg>
+            </View>
+
+            {/* Rotating dial */}
+            <Animated.View
+              style={[
+                styles.dial,
+                {
+                  width: compassSize,
+                  height: compassSize,
+                  borderRadius: compassSize / 2,
+                  backgroundColor: colors.surface,
+                  borderColor: colors.ink,
+                },
+                dialStyle,
               ]}
             >
-              <Svg width={COMPASS_SIZE} height={COMPASS_SIZE} viewBox="0 0 200 200">
-                {/* Dial circle */}
-                <SvgCircle cx="100" cy="100" r="95" stroke={Theme.colors.border} strokeWidth="2" fill={Theme.colors.surface} />
+              <Svg width={compassSize} height={compassSize} viewBox="0 0 200 200">
+                <SvgCircle cx="100" cy="100" r="97" fill={colors.surface} />
+                <SvgCircle cx="100" cy="100" r="74" fill={colors.surfaceAlt} stroke={colors.ink} strokeWidth="2" />
 
-                {/* Degree ticks */}
-                {Array.from({ length: 12 }).map((_, i) => {
-                  const angle = (i * 30 * Math.PI) / 180;
-                  const x1 = 100 + 85 * Math.sin(angle);
-                  const y1 = 100 - 85 * Math.cos(angle);
-                  const x2 = 100 + 92 * Math.sin(angle);
-                  const y2 = 100 - 92 * Math.cos(angle);
-                  return (
-                    <Line
-                      key={i}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      stroke={i % 3 === 0 ? Theme.colors.primary : Theme.colors.border}
-                      strokeWidth={i % 3 === 0 ? '2' : '1'}
-                    />
-                  );
-                })}
+                {/* Degree ticks every 5° */}
+                {tickLines}
 
-                {/* Cardinal Labels */}
-                <SvgText x="100" y="24" fill={Theme.colors.error} fontSize="14" fontWeight="bold" textAnchor="middle">N</SvgText>
-                <SvgText x="178" y="105" fill={Theme.colors.textSecondary} fontSize="14" textAnchor="middle">E</SvgText>
-                <SvgText x="100" y="186" fill={Theme.colors.textSecondary} fontSize="14" textAnchor="middle">S</SvgText>
-                <SvgText x="22" y="105" fill={Theme.colors.textSecondary} fontSize="14" textAnchor="middle">W</SvgText>
+                {/* Cardinal letters */}
+                <SvgText x="100" y="34" fill={colors.danger} stroke={colors.ink} strokeWidth="0.8" fontSize="16" fontWeight="900" textAnchor="middle">N</SvgText>
+                <SvgText x="171" y="105" fill={colors.text} fontSize="14" fontWeight="900" textAnchor="middle">E</SvgText>
+                <SvgText x="100" y="176" fill={colors.text} fontSize="14" fontWeight="900" textAnchor="middle">S</SvgText>
+                <SvgText x="29" y="105" fill={colors.text} fontSize="14" fontWeight="900" textAnchor="middle">W</SvgText>
 
-                {/* Inner decorative rings */}
-                <SvgCircle cx="100" cy="100" r="50" stroke="rgba(35, 68, 50, 0.4)" strokeWidth="1" fill="none" />
+                {/* Inner decorative ring */}
+                <SvgCircle cx="100" cy="100" r="46" stroke={colors.ink} strokeWidth="1.5" strokeDasharray="3 5" fill="none" />
 
-                {/* Pointer Arrow pointing to Qibla (Kaaba) relative to dial */}
+                {/* Qibla needle + Kaaba marker */}
                 <G transform={`rotate(${qiblaAngle}, 100, 100)`}>
-                  {/* Outer needle pointer */}
-                  <Path
-                    d="M100,15 L108,55 L92,55 Z"
-                    fill={Theme.colors.accent}
-                  />
-                  <Line x1="100" y1="55" x2="100" y2="100" stroke={Theme.colors.accent} strokeWidth="2" strokeDasharray="3" />
-
-                  {/* Kaaba Representation Marker */}
-                  <Path
-                    d="M93,30 L107,30 L107,44 L93,44 Z"
-                    fill="#1A1A1A"
-                  />
-                  {/* Gold band on Kaaba representation */}
-                  <Line x1="93" y1="34" x2="107" y2="34" stroke={Theme.colors.accent} strokeWidth="1.5" />
+                  <Line x1="100" y1="100" x2="100" y2="52" stroke={colors.ink} strokeWidth="4" strokeLinecap="round" />
+                  <Path d="M100,40 L108,57 L92,57 Z" fill={colors.accent} stroke={colors.ink} strokeWidth="2" strokeLinejoin="round" />
+                  {/* Kaaba */}
+                  <Rect x="91" y="18" width="18" height="18" rx="2.5" fill={KAABA_BLACK} stroke={colors.ink} strokeWidth="2" />
+                  <Line x1="91" y1="23.5" x2="109" y2="23.5" stroke={colors.accent} strokeWidth="2" />
+                  <Rect x="98" y="29" width="4" height="7" rx="0.8" fill={colors.accent} opacity={0.85} />
                 </G>
 
                 {/* Center cap */}
-                <SvgCircle cx="100" cy="100" r="6" fill={Theme.colors.white} stroke={Theme.colors.border} strokeWidth="2" />
+                <SvgCircle cx="100" cy="100" r="9" fill={colors.accent} stroke={colors.ink} strokeWidth="2.5" />
+                <SvgCircle cx="100" cy="100" r="3" fill={colors.ink} />
               </Svg>
-            </View>
-          </View>
+            </Animated.View>
+          </Animated.View>
 
-          {/* Compass Control & Warning widgets */}
+          {/* Guidance */}
+          <Animated.View entering={FadeInDown.delay(300).duration(450)} style={styles.fullWidth}>
+            <BrutalBox fill={aligned ? colors.primarySoft : colors.surface} style={styles.guidance}>
+              <View style={[styles.iconTile, outline(colors), { backgroundColor: aligned ? colors.primary : colors.accent }]}>
+                {aligned ? <Check color={colors.ink} size={18} strokeWidth={3} /> : <Navigation color={colors.ink} size={18} strokeWidth={2.5} />}
+              </View>
+              <View style={styles.flex1}>
+                <Text style={[styles.guidanceTitle, { color: colors.text }]}>
+                  {aligned ? 'You are facing the Qibla' : `Turn ${offset > 0 ? 'right' : 'left'} ${Math.round(Math.abs(offset))}°`}
+                </Text>
+                <Text style={[styles.guidanceSub, { color: colors.textMuted }]}>
+                  {aligned ? 'Alhamdulillah — the Kaaba is straight ahead.' : 'Line up the Kaaba with the marker at the top.'}
+                </Text>
+              </View>
+            </BrutalBox>
+          </Animated.View>
+
+          {/* Warnings */}
           {isUsingFallback ? (
-            <View style={styles.warningBox}>
-              <Text style={styles.warningText}>
-                ⚠️ GPS location denied or failed. Showing Qibla relative to fallback coordinates (Makkah).
+            <Animated.View entering={FadeInDown.delay(340).duration(450)} style={[styles.banner, outline(colors), { backgroundColor: colors.accentSoft }]}>
+              <TriangleAlert color={colors.text} size={18} strokeWidth={2.4} />
+              <Text style={[styles.bannerText, { color: colors.text }]}>
+                GPS location denied or failed. Showing Qibla relative to fallback coordinates (Makkah).
               </Text>
-            </View>
+            </Animated.View>
           ) : null}
 
-          <View style={styles.controls}>
+          {/* Controls */}
+          <Animated.View entering={FadeInDown.delay(380).duration(450)} style={styles.fullWidth}>
             {isSensorAvailable ? (
-              <TouchableOpacity
+              <BrutalPressable
+                fill={colors.primary}
                 style={styles.toggleBtn}
                 onPress={() => {
                   setIsManualMode(!isManualMode);
                   if (isManualMode) setDeviceHeading(0);
                 }}
               >
-                <Navigation color={Theme.colors.white} size={16} />
-                <Text style={styles.toggleBtnText}>
+                {isManualMode ? <Compass color={colors.onPrimary} size={18} /> : <Hand color={colors.onPrimary} size={18} />}
+                <Text style={[styles.toggleBtnText, { color: colors.onPrimary }]}>
                   {isManualMode ? 'Enable Device Sensors' : 'Switch to Manual Adjust'}
                 </Text>
-              </TouchableOpacity>
+              </BrutalPressable>
             ) : (
-              <View style={styles.warningBox}>
-                <Text style={styles.warningText}>
-                  ℹ️ Magnetometer sensor not detected on this device. Using manual rotation.
+              <View style={[styles.banner, outline(colors), { backgroundColor: colors.accentSoft }]}>
+                <Info color={colors.text} size={18} strokeWidth={2.4} />
+                <Text style={[styles.bannerText, { color: colors.text }]}>
+                  Magnetometer sensor not detected on this device. Using manual rotation.
                 </Text>
               </View>
             )}
+          </Animated.View>
 
-            {/* Slider for Manual Direction Calibration */}
-            {isManualMode ? (
-              <View style={styles.sliderBox}>
-                <View style={styles.sliderHeader}>
-                  <Text style={styles.sliderLabel}>Align Dial manually to North</Text>
-                  <Text style={styles.sliderValue}>{Math.round(deviceHeading)}°</Text>
+          {isManualMode ? (
+            <Animated.View entering={FadeInDown.duration(400)} style={styles.fullWidth}>
+              <Card style={styles.manualCard}>
+                <View style={styles.manualHeader}>
+                  <Text style={[styles.manualLabel, { color: colors.text }]}>Align dial manually to North</Text>
+                  <View style={[styles.valuePill, outline(colors), { backgroundColor: colors.primarySoft }]}>
+                    <Text style={[styles.valuePillText, { color: colors.text }]}>{Math.round(deviceHeading)}°</Text>
+                  </View>
                 </View>
                 <View style={styles.manualControlsRow}>
-                  <TouchableOpacity
-                    style={styles.manualAdjustBtn}
-                    onPress={() => setDeviceHeading((prev) => (prev - 15 + 360) % 360)}
-                  >
-                    <Text style={styles.manualAdjustBtnText}>-15°</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.manualAdjustBtn}
-                    onPress={() => setDeviceHeading((prev) => (prev - 5 + 360) % 360)}
-                  >
-                    <Text style={styles.manualAdjustBtnText}>-5°</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.manualAdjustBtn}
-                    onPress={() => setDeviceHeading((prev) => (prev + 5) % 360)}
-                  >
-                    <Text style={styles.manualAdjustBtnText}>+5°</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.manualAdjustBtn}
-                    onPress={() => setDeviceHeading((prev) => (prev + 15) % 360)}
-                  >
-                    <Text style={styles.manualAdjustBtnText}>+15°</Text>
-                  </TouchableOpacity>
+                  {[-15, -5, 5, 15].map((step) => (
+                    <BrutalPressable
+                      key={step}
+                      fill={colors.surfaceAlt}
+                      radius={14}
+                      offset={brutal.shadowSmall}
+                      borderWidth={brutal.borderThin}
+                      style={styles.manualAdjustBtn}
+                      onPress={() => setDeviceHeading((prev) => (prev + step + 360) % 360)}
+                    >
+                      <Text style={[styles.manualAdjustBtnText, { color: colors.text }]}>
+                        {step > 0 ? `+${step}` : step}°
+                      </Text>
+                    </BrutalPressable>
+                  ))}
                 </View>
-                <Text style={styles.sliderSub}>Use the buttons to align the dial manually until 'N' points north.</Text>
-              </View>
-            ) : (
-              <View style={styles.sensorBox}>
-                <Text style={styles.sensorStatus}>
-                  🧭 Real-time compass active. Rotate your device to calibrate.
+                <Text style={[styles.manualSub, { color: colors.textMuted }]}>
+                  Use the buttons to align the dial manually until 'N' points north.
                 </Text>
-              </View>
-            )}
-          </View>
-        </View>
+              </Card>
+            </Animated.View>
+          ) : (
+            <Animated.View entering={FadeIn.duration(400)} style={styles.sensorRow}>
+              <MapPin color={colors.text} size={15} strokeWidth={2.4} />
+              <Text style={[styles.sensorStatus, { color: colors.textSecondary }]}>
+                Real-time compass active. Rotate your device to calibrate.
+              </Text>
+            </Animated.View>
+          )}
+        </Animated.ScrollView>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-    backgroundColor: Theme.colors.surface,
-  },
-  backBtn: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  loadingText: {
-    color: Theme.colors.textSecondary,
-    fontSize: 15,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 24,
-    justifyContent: 'space-between',
-  },
-  statsCard: {
-    flexDirection: 'row',
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
-    paddingVertical: 16,
-    width: '100%',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statLabel: {
-    color: Theme.colors.textMuted,
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  statValue: {
-    color: Theme.colors.accent,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: Theme.colors.border,
-  },
-  compassWrapper: {
-    width: COMPASS_SIZE,
-    height: COMPASS_SIZE,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-    marginVertical: 40,
-  },
-  northMarker: {
+  container: { flex: 1 },
+  flex1: { flex: 1 },
+  fullWidth: { width: '100%' },
+
+  statsRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  statCard: { flex: 1, paddingVertical: 12, paddingHorizontal: 14 },
+  statLabel: { ...T.caption, fontSize: 10, letterSpacing: 1, fontWeight: '800' },
+  statValue: { fontSize: 19, fontWeight: '900', marginTop: 4, letterSpacing: -0.3 },
+
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
+  loadingText: { fontSize: 15, fontWeight: '600' },
+
+  content: { alignItems: 'center', paddingHorizontal: 20, paddingTop: 18, gap: 16 },
+
+  readout: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  readoutDeg: { fontSize: 46, fontWeight: '900', letterSpacing: -1.5, fontVariant: ['tabular-nums'] },
+  readoutPoint: { fontSize: 18, fontWeight: '900' },
+
+  compassWrapper: { alignItems: 'center', justifyContent: 'center' },
+  glow: {
     position: 'absolute',
-    top: -12,
-    width: 6,
-    height: 18,
-    backgroundColor: Theme.colors.error,
-    borderRadius: 3,
-    zIndex: 10,
+    borderWidth: brutal.border,
   },
-  compassDisk: {
-    width: COMPASS_SIZE,
-    height: COMPASS_SIZE,
+  dialShadow: { position: 'absolute', transform: [{ translateX: brutal.shadow + 1 }, { translateY: brutal.shadow + 1 }] },
+  pointer: { position: 'absolute', top: 0, zIndex: 10 },
+  dial: {
+    borderWidth: brutal.border,
+    overflow: 'hidden',
   },
-  controls: {
-    width: '100%',
+
+  guidance: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
+    padding: 14,
   },
+  iconTile: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  guidanceTitle: { fontSize: 16, fontWeight: '900' },
+  guidanceSub: { fontSize: 13, fontWeight: '600', marginTop: 2 },
+
+  banner: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 18, padding: 14, width: '100%' },
+  bannerText: { flex: 1, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+
   toggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
+    height: 52,
     gap: 8,
   },
-  toggleBtnText: {
-    color: Theme.colors.text,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  warningBox: {
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-    borderWidth: 1,
-    borderRadius: Theme.radius.sm,
-    padding: 12,
-    width: '100%',
-  },
-  warningText: {
-    color: Theme.colors.accent,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  sliderBox: {
-    width: '100%',
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
-    padding: 16,
-  },
-  sliderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  sliderLabel: {
-    color: Theme.colors.textSecondary,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  sliderValue: {
-    color: Theme.colors.primary,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  sliderSub: {
-    fontSize: 11,
-    color: Theme.colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 16,
-    marginTop: 8,
-  },
-  manualControlsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 12,
-    gap: 8,
-  },
-  manualAdjustBtn: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.sm,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  manualAdjustBtnText: {
-    color: Theme.colors.primary,
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  sensorBox: {
-    paddingVertical: 12,
-  },
-  sensorStatus: {
-    color: Theme.colors.primary,
-    fontSize: 14,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
+  toggleBtnText: { fontSize: 15, fontWeight: '900' },
+
+  manualCard: { padding: 18 },
+  manualHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  manualLabel: { fontSize: 15, fontWeight: '900' },
+  valuePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  valuePillText: { fontSize: 13, fontWeight: '800' },
+  manualControlsRow: { flexDirection: 'row', marginVertical: 14, gap: 10 },
+  manualAdjustBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
+  manualAdjustBtnText: { fontSize: 14, fontWeight: '900' },
+  manualSub: { fontSize: 12, textAlign: 'center', lineHeight: 17 },
+
+  sensorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8 },
+  sensorStatus: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
 });

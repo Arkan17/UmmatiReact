@@ -1,16 +1,23 @@
-import React from 'react';
-import { View, ActivityIndicator, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, StatusBar, LayoutChangeEvent } from 'react-native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { Home, BookOpen, User, Users } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import { useAuth } from '../hooks/useAuth';
-import { Theme } from '../theme/theme';
+import { useAppTheme } from '../theme/ThemeProvider';
+import { AnimatedSplash } from '../components/AnimatedSplash';
+import { BRAND } from '../components/UmmatiLogo';
+import { BrutalPressable, PressableScale, haptic } from '../components/ui';
+import { brutal } from '../theme/palettes';
+import { schedulePrayerNotifications } from '../notifications/prayerNotifications';
 
-// Skeletons / Features imports (will be created in subsequent steps)
 import { OnboardingScreen } from '../../features/onboarding/screens/OnboardingScreen';
+import { AuthScreen } from '../../features/auth/screens/AuthScreen';
 import { HomeScreen } from '../../features/home/screens/HomeScreen';
 import { PrayerTimesScreen } from '../../features/home/screens/PrayerTimesScreen';
 import { SurahListScreen } from '../../features/quran/screens/SurahListScreen';
@@ -18,9 +25,22 @@ import { QuranReadingScreen } from '../../features/quran/screens/QuranReadingScr
 import { QiblaScreen } from '../../features/qibla/screens/QiblaScreen';
 import { TasbihScreen } from '../../features/tasbih/screens/TasbihScreen';
 import { MosqueScreen } from '../../features/mosques/screens/MosqueScreen';
-import { ExploreScreen } from '../../features/explore/screens/ExploreScreen';
+import { CommunityScreen } from '../../features/community/screens/CommunityScreen';
+import { ComposePostScreen } from '../../features/community/screens/ComposePostScreen';
+import { PostDetailScreen } from '../../features/community/screens/PostDetailScreen';
+import { UserProfileScreen } from '../../features/community/screens/UserProfileScreen';
+import { NotificationsScreen } from '../../features/community/screens/NotificationsScreen';
+import { ModerationScreen } from '../../features/community/screens/ModerationScreen';
+import { BlockedUsersScreen } from '../../features/community/screens/BlockedUsersScreen';
+import { KhatamGroupScreen } from '../../features/community/screens/KhatamGroupScreen';
+import { GroupDetailScreen } from '../../features/community/screens/GroupDetailScreen';
+import { CreateEventScreen } from '../../features/community/screens/CreateEventScreen';
+import { CommunityAlertsListener } from '../../features/community/notifications/CommunityAlertsListener';
+import type { Attachment, Category } from '../../features/community/api/types';
 import { KidsSectionScreen } from '../../features/kids/screens/KidsSectionScreen';
+import { ProphetStoryScreen } from '../../features/kids/screens/ProphetStoryScreen';
 import { ProfileScreen } from '../../features/profile/screens/ProfileScreen';
+import { DevelopersNoteScreen } from '../../features/profile/screens/DevelopersNoteScreen';
 
 // Sub Explore Screens
 import { KalimasScreen } from '../../features/explore/screens/KalimasScreen';
@@ -29,12 +49,14 @@ import { DuasScreen } from '../../features/explore/screens/DuasScreen';
 import { LiveStreamsScreen } from '../../features/explore/screens/LiveStreamsScreen';
 import { NaatsScreen } from '../../features/explore/screens/NaatsScreen';
 import { CalendarScreen } from '../../features/explore/screens/CalendarScreen';
+import { ZakatCalculatorScreen } from '../../features/zakat/screens/ZakatCalculatorScreen';
+import { QadaTrackerScreen } from '../../features/qada/screens/QadaTrackerScreen';
+import { FastingHubScreen } from '../../features/fasting/screens/FastingHubScreen';
 
 // Types defining navigation routes
 export type RootStackParamList = {
   Onboarding: undefined;
-  Login: undefined;
-  Register: undefined;
+  Auth: { mode?: 'signin' | 'signup' | 'upgrade' } | undefined;
   MainApp: undefined;
   QuranReading: { surahNumber?: number; surahName?: string; translationName?: string; juzNumber?: number; juzName?: string };
   Qibla: undefined;
@@ -46,7 +68,21 @@ export type RootStackParamList = {
   LiveStreams: undefined;
   Naats: undefined;
   Calendar: undefined;
+  ZakatCalculator: undefined;
+  QadaTracker: undefined;
+  FastingHub: undefined;
   KidsSection: undefined;
+  ProphetStory: { id: string };
+  ComposePost: { category?: Category; groupId?: string; groupName?: string; attachment?: Attachment } | undefined;
+  PostDetail: { postId: string };
+  UserProfile: { userId: string };
+  CommunityNotifications: undefined;
+  Moderation: undefined;
+  BlockedUsers: undefined;
+  KhatamGroup: { id: string };
+  GroupDetail: { id: string };
+  CreateEvent: { groupId?: string } | undefined;
+  DevelopersNote: undefined;
 };
 
 export type HomeStackParamList = {
@@ -68,13 +104,13 @@ const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 
 function HomeStackNavigator() {
   return (
-    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+    <HomeStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right', freezeOnBlur: true }}>
       <HomeStack.Screen name="Home" component={HomeScreen} />
       <HomeStack.Screen name="PrayerTimes" component={PrayerTimesScreen} />
     </HomeStack.Navigator>
   );
 }
-// Custom Mosque outline icon for floating action button
+
 const MosqueSvg = ({ color, size }: { color: string; size: number }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Path
@@ -91,299 +127,196 @@ const MosqueSvg = ({ color, size }: { color: string; size: number }) => (
   </Svg>
 );
 
-// Custom Profile Icon with Green Active Dot
-function ProfileTabIcon({ color, size }: { color: string; size: number }) {
-  return (
-    <View style={{ width: size + 6, height: size + 6, justifyContent: 'center', alignItems: 'center' }}>
-      <User color={color} size={size} />
-      <View
-        style={{
-          position: 'absolute',
-          right: 2,
-          top: 2,
-          width: 8,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: '#0E9F6E',
-          borderWidth: 1.5,
-          borderColor: '#FFFFFF',
-        }}
-      />
-    </View>
-  );
-}
+const TABS: Record<keyof TabParamList, { label: string; Icon?: typeof Home }> = {
+  HomeTab: { label: 'Home', Icon: Home },
+  QuranTab: { label: 'Quran', Icon: BookOpen },
+  MosqueTab: { label: 'Mosques' },
+  CommunityTab: { label: 'Community', Icon: Users },
+  ProfileTab: { label: 'Profile', Icon: User },
+};
 
-// Custom Tab Bar component to match the mockup exactly
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+// Floating tab bar with a spring-animated pill that slides to the active tab
+function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const [tabWidth, setTabWidth] = useState(0);
+  const pillX = useSharedValue(0);
 
-function CustomTabBar({ state, descriptors: _descriptors, navigation }: BottomTabBarProps) {
+  useEffect(() => {
+    if (tabWidth) pillX.value = withSpring(state.index * tabWidth, { damping: 22, stiffness: 260 });
+  }, [state.index, tabWidth, pillX]);
+
+  const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateX: pillX.value }] }));
+  const onLayout = (e: LayoutChangeEvent) => setTabWidth((e.nativeEvent.layout.width - 16 - 2 * brutal.border) / state.routes.length);
+  const activeIsFab = state.routes[state.index]?.name === 'MosqueTab';
+
   return (
-    <View style={styles.tabBarContainer}>
+    <View style={[styles.tabBarWrap, { bottom: Math.max(insets.bottom, 12) }]}>
+    {/* Hard offset shadow */}
+    <View pointerEvents="none" style={[styles.tabBarShadow, { backgroundColor: colors.ink }]} />
+    <View
+      onLayout={onLayout}
+      style={[styles.tabBar, { backgroundColor: colors.tabBar, borderColor: colors.ink }]}
+    >
+      {tabWidth > 0 && !activeIsFab && (
+        <Animated.View style={[styles.pill, { width: tabWidth - 12, backgroundColor: colors.accentSoft, borderColor: colors.ink }, pillStyle]} />
+      )}
       {state.routes.map((route, index) => {
         const isFocused = state.index === index;
+        const tab = TABS[route.name as keyof TabParamList];
 
         const onPress = () => {
-          const event = navigation.emit({
-            type: 'tabPress',
-            target: route.key,
-            canPreventDefault: true,
-          });
-
+          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
           if (!isFocused && !event.defaultPrevented) {
+            haptic.select();
             navigation.navigate(route.name);
           }
         };
 
         if (route.name === 'MosqueTab') {
-          const isActive = state.index === index;
           return (
-            <TouchableOpacity
-              key={route.key}
-              onPress={onPress}
-              style={styles.fabTabButton}
-              activeOpacity={0.85}
-            >
-              <View style={[
-                styles.fabCircle,
-                isActive && styles.fabCircleActive
-              ]}>
-                <MosqueSvg color="#FFFFFF" size={26} />
-              </View>
-            </TouchableOpacity>
+            <View key={route.key} style={styles.tabButton}>
+              <BrutalPressable onPress={onPress} hapticOnPress={false} fill={colors.primary} radius={20} offset={brutal.shadowSmall} style={styles.fab}>
+                <MosqueSvg color={colors.onPrimary} size={26} />
+              </BrutalPressable>
+            </View>
           );
         }
 
-        let IconComponent: any;
-        let tabLabel = '';
-
-        if (route.name === 'HomeTab') {
-          IconComponent = Home;
-          tabLabel = 'Home';
-        } else if (route.name === 'QuranTab') {
-          IconComponent = BookOpen;
-          tabLabel = 'Quran';
-        } else if (route.name === 'CommunityTab') {
-          IconComponent = Users;
-          tabLabel = 'Community';
-        } else if (route.name === 'ProfileTab') {
-          IconComponent = ProfileTabIcon;
-          tabLabel = 'Profile';
-        }
-
-        const tintColor = isFocused ? '#0E9F6E' : '#94A3B8';
-
+        const tint = isFocused ? colors.text : colors.textMuted;
+        const Icon = tab.Icon!;
         return (
-          <TouchableOpacity
-            key={route.key}
-            onPress={onPress}
-            style={styles.tabButton}
-            activeOpacity={0.7}
-          >
-            <View style={[
-              styles.iconWrapper,
-              isFocused ? styles.iconWrapperActive : styles.iconWrapperInactive
-            ]}>
-              {route.name === 'ProfileTab' ? (
-                <ProfileTabIcon color={tintColor} size={20} />
-              ) : (
-                <IconComponent color={tintColor} size={20} />
-              )}
-            </View>
-            <Text style={[
-              styles.tabBarLabel,
-              { color: tintColor, fontWeight: isFocused ? 'bold' : '500' }
-            ]}>
-              {tabLabel}
-            </Text>
-          </TouchableOpacity>
+          <PressableScale key={route.key} onPress={onPress} hapticOnPress={false} style={styles.tabButton} accessibilityRole="button" accessibilityState={{ selected: isFocused }}>
+            <Icon color={tint} size={21} strokeWidth={isFocused ? 2.6 : 2} />
+            <Text style={[styles.tabLabel, { color: tint, fontWeight: isFocused ? '900' : '700' }]}>{tab.label}</Text>
+          </PressableScale>
         );
       })}
     </View>
+    </View>
   );
 }
 
-// 1. Bottom Tab Navigation for Logged-In App Context
+const renderTabBar = (props: BottomTabBarProps) => <CustomTabBar {...props} />;
+
 function BottomTabNavigator() {
   return (
-    <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Tab.Screen name="HomeTab" component={HomeStackNavigator} />
-      <Tab.Screen name="QuranTab" component={SurahListScreen} />
-      <Tab.Screen name="MosqueTab" component={MosqueScreen} />
-      <Tab.Screen name="CommunityTab" component={ExploreScreen} />
-      <Tab.Screen name="ProfileTab" component={ProfileScreen} />
-    </Tab.Navigator>
-  );
-}
-
-// 2. Custom Splash Screen displayed during boot/session check
-function SplashScreen() {
-  return (
-    <View style={styles.splashContainer}>
-      <View style={styles.logoCircle}>
-        <Text style={styles.logoText}>أمتي</Text>
-      </View>
-      <Text style={styles.splashTitle}>Ummati</Text>
-      <Text style={styles.splashSubtitle}>Your Daily Islamic Companion</Text>
-      <ActivityIndicator size="large" color={Theme.colors.primary} style={styles.spinner} />
-    </View>
+    <>
+      {/* Signed-in only: turns live community activity into local alerts */}
+      <CommunityAlertsListener />
+      <Tab.Navigator tabBar={renderTabBar} screenOptions={{ headerShown: false, animation: 'shift', freezeOnBlur: true }}>
+        <Tab.Screen name="HomeTab" component={HomeStackNavigator} />
+        <Tab.Screen name="QuranTab" component={SurahListScreen} />
+        <Tab.Screen name="MosqueTab" component={MosqueScreen} />
+        <Tab.Screen name="CommunityTab" component={CommunityScreen} />
+        <Tab.Screen name="ProfileTab" component={ProfileScreen} />
+      </Tab.Navigator>
+    </>
   );
 }
 
 export default function RootNavigator() {
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, onboardingCompleted } = useAuth();
+  const { colors } = useAppTheme();
+  const [splashVisible, setSplashVisible] = useState(true);
+  const hideSplash = useCallback(() => setSplashVisible(false), []);
 
-  if (isLoading) {
-    return <SplashScreen />;
-  }
+  // Keep the next week of Adhan notifications queued whenever a user is signed in
+  useEffect(() => {
+    if (isAuthenticated) schedulePrayerNotifications();
+  }, [isAuthenticated]);
+
+  const navTheme = {
+    ...(colors.isDark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(colors.isDark ? DarkTheme : DefaultTheme).colors,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      primary: colors.primary,
+      border: colors.border,
+    },
+  };
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!isAuthenticated ? (
-          // Onboarding Flow
-          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-        ) : (
-          // Logged-in App Stack
-          <>
-            <Stack.Screen name="MainApp" component={BottomTabNavigator} />
-            <Stack.Screen name="QuranReading" component={QuranReadingScreen} />
-            <Stack.Screen name="Qibla" component={QiblaScreen} />
-            <Stack.Screen name="Tasbih" component={TasbihScreen} />
-            <Stack.Screen name="Mosque" component={MosqueScreen} />
-
-            {/* Explore Sub-Screens */}
-            <Stack.Screen name="Kalimas" component={KalimasScreen} />
-            <Stack.Screen name="NamesOfAllah" component={NamesOfAllahScreen} />
-            <Stack.Screen name="Duas" component={DuasScreen} />
-            <Stack.Screen name="LiveStreams" component={LiveStreamsScreen} />
-            <Stack.Screen name="Naats" component={NaatsScreen} />
-            <Stack.Screen name="Calendar" component={CalendarScreen} />
-            <Stack.Screen name="KidsSection" component={KidsSectionScreen} />
-          </>
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <View style={{ flex: 1, backgroundColor: BRAND.paper }}>
+      <StatusBar barStyle={splashVisible ? 'dark-content' : colors.statusBar} translucent backgroundColor="transparent" />
+      {!isLoading && (
+        <NavigationContainer theme={navTheme}>
+          {/* freezeOnBlur: screens hidden under the stack stop re-rendering until they're visible again */}
+          <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right', freezeOnBlur: true }}>
+            {!isAuthenticated ? (
+              <>
+                {!onboardingCompleted && <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ animation: 'fade' }} />}
+                {/* `Auth` exists in both branches; a different navigationKey per branch makes React Navigation
+                    drop the open Auth route on sign-in/out instead of keeping the user on it */}
+                <Stack.Screen navigationKey="signed-out" name="Auth" component={AuthScreen} options={{ animation: 'fade_from_bottom' }} />
+              </>
+            ) : (
+              <>
+                <Stack.Screen name="MainApp" component={BottomTabNavigator} options={{ animation: 'fade' }} />
+                <Stack.Screen name="QuranReading" component={QuranReadingScreen} />
+                <Stack.Screen name="Qibla" component={QiblaScreen} />
+                <Stack.Screen name="Tasbih" component={TasbihScreen} />
+                <Stack.Screen name="Mosque" component={MosqueScreen} />
+                <Stack.Screen name="Kalimas" component={KalimasScreen} />
+                <Stack.Screen name="NamesOfAllah" component={NamesOfAllahScreen} />
+                <Stack.Screen name="Duas" component={DuasScreen} />
+                <Stack.Screen name="LiveStreams" component={LiveStreamsScreen} />
+                <Stack.Screen name="Naats" component={NaatsScreen} />
+                <Stack.Screen name="Calendar" component={CalendarScreen} />
+                <Stack.Screen name="ZakatCalculator" component={ZakatCalculatorScreen} />
+                <Stack.Screen name="QadaTracker" component={QadaTrackerScreen} />
+                <Stack.Screen name="FastingHub" component={FastingHubScreen} />
+                <Stack.Screen name="KidsSection" component={KidsSectionScreen} />
+                <Stack.Screen name="ProphetStory" component={ProphetStoryScreen} />
+                <Stack.Screen name="ComposePost" component={ComposePostScreen} options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="PostDetail" component={PostDetailScreen} />
+                <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+                <Stack.Screen name="CommunityNotifications" component={NotificationsScreen} />
+                <Stack.Screen name="Moderation" component={ModerationScreen} />
+                <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
+                <Stack.Screen name="KhatamGroup" component={KhatamGroupScreen} />
+                <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+                <Stack.Screen name="CreateEvent" component={CreateEventScreen} options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="DevelopersNote" component={DevelopersNoteScreen} />
+                {/* Lets a guest turn their session into a full account */}
+                <Stack.Screen navigationKey="signed-in" name="Auth" component={AuthScreen} options={{ animation: 'slide_from_bottom' }} />
+              </>
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      )}
+      {splashVisible && <AnimatedSplash ready={!isLoading} onFinish={hideSplash} />}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  splashContainer: {
+  tabBarWrap: { position: 'absolute', left: 14, right: 18, height: 68 },
+  tabBarShadow: { position: 'absolute', top: brutal.shadow, left: brutal.shadow, right: -brutal.shadow, bottom: -brutal.shadow, borderRadius: 26 },
+  tabBar: {
     flex: 1,
-    backgroundColor: Theme.colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: Theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  logoText: {
-    fontSize: 48,
-    color: Theme.colors.white,
-    fontWeight: 'bold',
-    fontFamily: 'System',
-  },
-  splashTitle: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-    letterSpacing: 1.5,
-  },
-  splashSubtitle: {
-    fontSize: 16,
-    color: Theme.colors.textSecondary,
-    marginTop: 8,
-  },
-  spinner: {
-    marginTop: 40,
-  },
-  fabContainer: {
-    top: -24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fabCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#0E9F6E',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#FFFFFF',
-    shadowColor: '#0E9F6E',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  tabBarContainer: {
+    borderRadius: 26,
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    height: 75,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 20,
     alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingBottom: Platform.OS === 'ios' ? 12 : 4,
     paddingHorizontal: 8,
+    borderWidth: brutal.border,
   },
-  tabButton: {
+  pill: {
+    position: 'absolute',
+    left: 14,
+    height: 50,
+    borderRadius: 16,
+    borderWidth: brutal.borderThin,
+  },
+  tabButton: { flex: 1, alignItems: 'center', justifyContent: 'center', height: '100%' },
+  tabLabel: { fontSize: 10.5, marginTop: 4, letterSpacing: 0.2 },
+  fab: {
+    width: 58,
+    height: 58,
+    marginTop: -30,
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-  },
-  iconWrapper: {
-    width: 56,
-    height: 30,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-    overflow: 'hidden',
-  },
-  iconWrapperActive: {
-    backgroundColor: '#E6F4EA',
-  },
-  iconWrapperInactive: {
-    backgroundColor: 'transparent',
-  },
-  tabBarLabel: {
-    fontSize: 10,
-    marginTop: 1,
-  },
-  fabTabButton: {
-    top: -20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  fabCircleActive: {
-    backgroundColor: '#046C4E',
-    borderColor: '#E6F4EA',
   },
 });

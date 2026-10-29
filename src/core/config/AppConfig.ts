@@ -1,9 +1,3 @@
-declare const process: {
-  env: {
-    [key: string]: string | undefined;
-  };
-};
-
 export const AppConfig = {
   // Replace these with your actual Supabase Project URL and Anon Key
   supabaseUrl: 'https://uuonrjrlehizarmaqyjo.supabase.co',
@@ -11,6 +5,9 @@ export const AppConfig = {
 
   // Public URL for general application content (Duas, Kalimas, Naats, Live Streams, Kids Section)
   contentApiUrl: 'https://raw.githubusercontent.com/Arkan17/UmmatiReact/main/ummati_app_data.json',
+
+  // CARTO Basemaps API key for Mosque map tiles
+  cartoApiKey: 'cb1_4xh4_1_c06cef7c5b37ca3686f5d017',
 
   storageKeys: {
     USER_INFO: 'ummati_user_info',

@@ -1,9 +1,19 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Platform } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { ArrowLeft, Search, Volume2 } from 'lucide-react-native';
-import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  FadeInDown,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { Pause, Search, Volume2, X } from 'lucide-react-native';
+import { useAppTheme } from '../../../core/theme/ThemeProvider';
+import { GlassCard, PressableScale, ScreenHeader, haptic } from '../../../core/components/ui';
+import { brutal } from '../../../core/theme/palettes';
 
 // Helper to generate names list statically to avoid network calls
 const NAMES = [
@@ -108,8 +118,101 @@ const NAMES = [
   { id: 99, name: 'الصَّبُورُ', trans: 'As-Saboor', meaning: 'The Patient' }
 ];
 
+type NameItem = typeof NAMES[0];
+
+/** Small eight-pointed star badge holding the name's number. */
+function StarBadge({ n }: { n: number }) {
+  const { colors } = useAppTheme();
+  const square = { borderColor: colors.ink, backgroundColor: colors.accent };
+  return (
+    <View style={styles.badge}>
+      <View style={[styles.badgeSquare, square, styles.badgeRotated]} />
+      <View style={[styles.badgeSquare, square]} />
+      <Text style={[styles.badgeText, { color: colors.ink }]}>{n}</Text>
+    </View>
+  );
+}
+
+const NameCard = React.memo(function NameCardInner({ item, index, isPlaying, onPlay }: {
+  item: NameItem;
+  index: number;
+  isPlaying: boolean;
+  onPlay: (id: number) => void;
+}) {
+  const { colors } = useAppTheme();
+  const [flipped, setFlipped] = useState(false);
+  const flip = useSharedValue(0);
+
+  const toggle = () => {
+    const next = !flipped;
+    setFlipped(next);
+    flip.value = withTiming(next ? 1 : 0, { duration: 420 });
+  };
+
+  const frontStyle = useAnimatedStyle(() => ({
+    opacity: flip.value < 0.5 ? 1 : 0,
+    transform: [{ perspective: 900 }, { rotateY: `${interpolate(flip.value, [0, 1], [0, 180])}deg` }],
+  }));
+  const backStyle = useAnimatedStyle(() => ({
+    opacity: flip.value >= 0.5 ? 1 : 0,
+    transform: [{ perspective: 900 }, { rotateY: `${interpolate(flip.value, [0, 1], [180, 360])}deg` }],
+  }));
+
+  const faceBase = [
+    styles.face,
+    {
+      backgroundColor: isPlaying ? colors.accentSoft : colors.surface,
+      borderColor: colors.ink,
+    },
+  ];
+
+  const playButton = (
+    <PressableScale
+      onPress={() => onPlay(item.id)}
+      hitSlop={8}
+      style={[styles.playBtn, { backgroundColor: isPlaying ? colors.primary : colors.primarySoft, borderColor: colors.ink }]}
+    >
+      {isPlaying ? <Pause color={colors.onPrimary} size={14} /> : <Volume2 color={colors.ink} size={14} strokeWidth={2.4} />}
+    </PressableScale>
+  );
+
+  return (
+    <Animated.View entering={FadeInDown.delay(Math.min(index * 30, 360)).duration(380)} style={styles.cell}>
+      <PressableScale onPress={toggle} scaleTo={0.97} style={styles.cardPress}>
+        {/* Hard offset shadow shared by both faces */}
+        <View pointerEvents="none" style={[styles.hardShadow, { backgroundColor: colors.ink }]} />
+        <Animated.View style={[faceBase, frontStyle]} pointerEvents={flipped ? 'none' : 'auto'}>
+          <View style={styles.cardTop}>
+            <StarBadge n={item.id} />
+            {playButton}
+          </View>
+          <Text style={[styles.arabicName, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
+            {item.name}
+          </Text>
+          <Text style={[styles.transName, { color: colors.text }]} numberOfLines={1}>{item.trans}</Text>
+          <Text style={[styles.hint, { color: colors.textMuted }]}>Tap for meaning</Text>
+        </Animated.View>
+
+        <Animated.View
+          style={[faceBase, styles.faceBack, { backgroundColor: colors.surfaceAlt }, backStyle]}
+          pointerEvents={flipped ? 'auto' : 'none'}
+        >
+          <View style={styles.cardTop}>
+            <StarBadge n={item.id} />
+            {playButton}
+          </View>
+          <Text style={[styles.backTrans, { color: colors.textSecondary }]} numberOfLines={1}>{item.trans}</Text>
+          <Text style={[styles.meaning, { color: colors.text }]} numberOfLines={4}>{item.meaning}</Text>
+        </Animated.View>
+      </PressableScale>
+    </Animated.View>
+  );
+});
+
 export function NamesOfAllahScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const [namesOfAllah, setNamesOfAllah] = useState(NAMES);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -148,13 +251,12 @@ export function NamesOfAllahScreen() {
           n.id.toString() === searchQuery
       );
 
-  const handlePlayName = (id: number) => {
+  const handlePlayName = useCallback((id: number) => {
     // Standard URL format for IslamicFinder individual name recitations
     const url = `https://www.islamicfinder.org/images/allah-names/audio/${id}.mp3`;
-    
+
     if (playingId === id) {
-      const script = `document.getElementById("name-audio").pause();`;
-      webViewRef.current?.injectJavaScript(script);
+      webViewRef.current?.injectJavaScript('document.getElementById("name-audio").pause(); true;');
       setPlayingId(null);
     } else {
       setPlayingId(id);
@@ -164,10 +266,11 @@ export function NamesOfAllahScreen() {
           player.src = "${url}";
         }
         player.play();
+        true;
       `;
       webViewRef.current?.injectJavaScript(script);
     }
-  };
+  }, [playingId]);
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
@@ -190,36 +293,12 @@ export function NamesOfAllahScreen() {
     </html>
   `;
 
-  const renderNameCard = ({ item }: { item: typeof NAMES[0] }) => {
-    const isPlaying = playingId === item.id;
-    return (
-      <TouchableOpacity
-        style={[styles.card, isPlaying ? styles.cardPlaying : null]}
-        onPress={() => handlePlayName(item.id)}
-      >
-        <View style={styles.cardTop}>
-          <Text style={styles.indexLabel}>{item.id}</Text>
-          <Volume2 color={isPlaying ? Theme.colors.primary : Theme.colors.textMuted} size={16} />
-        </View>
-        
-        <Text style={styles.arabicName}>{item.name}</Text>
-        <Text style={styles.transName}>{item.trans}</Text>
-        <Text style={styles.meaningName} numberOfLines={2}>{item.meaning}</Text>
-      </TouchableOpacity>
-    );
-  };
+  const renderNameCard = ({ item, index }: { item: NameItem; index: number }) => (
+    <NameCard item={item} index={index} isPlaying={playingId === item.id} onPlay={handlePlayName} />
+  );
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft color={Theme.colors.text} size={24} />
-        </TouchableOpacity>
-        <Text style={styles.title}>99 Names of Allah</Text>
-        <View style={styles.placeholderWidth} />
-      </View>
-
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Hidden Audio Player */}
       <View style={styles.hiddenWebView}>
         <WebView<{}>
@@ -236,135 +315,85 @@ export function NamesOfAllahScreen() {
         />
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Search color={Theme.colors.textMuted} size={20} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search names or meanings..."
-          placeholderTextColor={Theme.colors.textMuted}
-          value={searchQuery}
-          onChangeText={handleSearch}
-          autoCorrect={false}
-        />
-      </View>
-
       <FlatList
         data={filteredNames}
         renderItem={renderNameCard}
         keyExtractor={(item) => item.id.toString()}
         numColumns={2}
         columnWrapperStyle={styles.rowWrapper}
-        contentContainerStyle={styles.gridContainer}
+        contentContainerStyle={[styles.gridContainer, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        ListHeaderComponent={
+          <ScreenHeader
+            title="99 Names of Allah"
+            subtitle="Asma ul-Husna · tap a card to reveal its meaning"
+            onBack={() => navigation.goBack()}
+            style={styles.header}
+          >
+            <GlassCard style={styles.searchBox}>
+              <Search color={colors.onSky} size={18} />
+              <TextInput
+                style={[styles.searchInput, { color: colors.onSky }]}
+                placeholder="Search names or meanings..."
+                placeholderTextColor={colors.onSkyMuted}
+                value={searchQuery}
+                onChangeText={handleSearch}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <PressableScale onPress={() => { haptic.select(); setSearchQuery(''); }} hitSlop={10}>
+                  <X color={colors.onSky} size={18} />
+                </PressableScale>
+              )}
+            </GlassCard>
+            <Text style={[styles.count, { color: colors.onSkyMuted }]}>
+              {filteredNames.length} of {namesOfAllah.length} names
+            </Text>
+          </ScreenHeader>
+        }
+        ListEmptyComponent={
+          <Text style={[styles.empty, { color: colors.textMuted }]}>No names match “{searchQuery}”.</Text>
+        }
       />
     </View>
   );
 }
 
+const CARD_HEIGHT = 178;
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-    backgroundColor: Theme.colors.surface,
-  },
-  backBtn: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  placeholderWidth: {
-    width: 40,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
-    height: 48,
-    marginHorizontal: 20,
-    marginVertical: 16,
-    paddingHorizontal: 16,
-  },
-  searchIcon: {
-    marginRight: 10,
-  },
-  searchInput: {
-    flex: 1,
-    color: Theme.colors.text,
-    fontSize: 15,
-  },
-  gridContainer: {
-    paddingHorizontal: 14,
-    paddingBottom: 30,
-  },
-  rowWrapper: {
-    justifyContent: 'space-between',
-    paddingHorizontal: 6,
-  },
-  card: {
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
+  container: { flex: 1 },
+  header: { marginHorizontal: -14, marginBottom: 18 },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, paddingHorizontal: 14, marginTop: 18 },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', height: 44 },
+  count: { fontSize: 12, fontWeight: '700', marginTop: 10, letterSpacing: 0.3 },
+  gridContainer: { paddingHorizontal: 14 },
+  rowWrapper: { gap: 14, marginBottom: 16 },
+  cell: { flex: 1 },
+  cardPress: { height: CARD_HEIGHT, marginRight: brutal.shadow },
+  hardShadow: { position: 'absolute', top: brutal.shadow, left: brutal.shadow, right: -brutal.shadow, bottom: -brutal.shadow, borderRadius: 22 },
+  face: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 22,
     padding: 14,
-    width: '48%',
-    marginBottom: 12,
     alignItems: 'center',
-    gap: 6,
+    backfaceVisibility: 'hidden',
+    borderWidth: brutal.border,
   },
-  cardPlaying: {
-    borderColor: Theme.colors.primary,
-    backgroundColor: 'rgba(16, 185, 129, 0.04)',
-  },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    alignItems: 'center',
-  },
-  indexLabel: {
-    color: Theme.colors.textMuted,
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  arabicName: {
-    fontSize: 24,
-    color: Theme.colors.white,
-    fontFamily: 'Georgia',
-    marginVertical: 4,
-  },
-  transName: {
-    color: Theme.colors.accent,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  meaningName: {
-    color: Theme.colors.textSecondary,
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 15,
-    height: 30, // constrain height for grid alignment
-  },
-  hiddenWebView: {
-    width: 0,
-    height: 0,
-    position: 'absolute',
-    opacity: 0,
-  },
+  faceBack: { justifyContent: 'flex-start' },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' },
+  badge: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
+  badgeSquare: { position: 'absolute', width: 22, height: 22, borderWidth: 1.5, borderRadius: 4 },
+  badgeRotated: { transform: [{ rotate: '45deg' }] },
+  badgeText: { fontSize: 10, fontWeight: '900' },
+  playBtn: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  arabicName: { fontSize: 32, lineHeight: 56, fontFamily: 'Georgia', marginTop: 6, textAlign: 'center', alignSelf: 'stretch' },
+  transName: { fontSize: 15, fontWeight: '900', letterSpacing: -0.2 },
+  hint: { fontSize: 11, fontWeight: '700', marginTop: 'auto' },
+  backTrans: { fontSize: 14, fontWeight: '900', marginTop: 14 },
+  meaning: { fontSize: 15, fontWeight: '700', lineHeight: 21, textAlign: 'center', marginTop: 8 },
+  empty: { textAlign: 'center', fontSize: 14, fontWeight: '600', marginTop: 40 },
+  hiddenWebView: { width: 0, height: 0, position: 'absolute', opacity: 0 },
 });

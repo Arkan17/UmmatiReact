@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
+import { saveLastLocation, loadLastLocation } from '../prayer/prayerTimes';
 
 export interface LocationData {
   latitude: number;
@@ -22,6 +23,20 @@ export const useLocation = () => {
     loading: true,
     isUsingFallback: true,
   });
+
+  // Pre-fill immediately from AsyncStorage cached location if available
+  useEffect(() => {
+    loadLastLocation().then((cached) => {
+      if (cached && (cached.latitude !== FALLBACK_LAT || cached.longitude !== FALLBACK_LNG)) {
+        setLocation((prev) => ({
+          ...prev,
+          latitude: cached.latitude,
+          longitude: cached.longitude,
+          isUsingFallback: false,
+        }));
+      }
+    });
+  }, []);
 
   const requestLocationPermission = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'ios') {
@@ -58,20 +73,22 @@ export const useLocation = () => {
   const fetchLocation = useCallback(async () => {
     setLocation((prev) => ({ ...prev, loading: true }));
     const hasPermission = await requestLocationPermission();
+    const cached = await loadLastLocation();
 
     if (!hasPermission) {
       setLocation({
-        latitude: FALLBACK_LAT,
-        longitude: FALLBACK_LNG,
+        latitude: cached.latitude,
+        longitude: cached.longitude,
         error: 'Permission denied',
         loading: false,
-        isUsingFallback: true,
+        isUsingFallback: cached.latitude === FALLBACK_LAT && cached.longitude === FALLBACK_LNG,
       });
       return;
     }
 
     Geolocation.getCurrentPosition(
       (position) => {
+        saveLastLocation(position.coords.latitude, position.coords.longitude);
         setLocation({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
@@ -83,11 +100,11 @@ export const useLocation = () => {
       (error) => {
         console.warn('Geolocation error, using fallback:', error);
         setLocation({
-          latitude: FALLBACK_LAT,
-          longitude: FALLBACK_LNG,
+          latitude: cached.latitude,
+          longitude: cached.longitude,
           error: error.message,
           loading: false,
-          isUsingFallback: true,
+          isUsingFallback: cached.latitude === FALLBACK_LAT && cached.longitude === FALLBACK_LNG,
         });
       },
       { enableHighAccuracy: false, timeout: 15000, maximumAge: 10000 }

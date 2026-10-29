@@ -1,23 +1,83 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { ArrowLeft, Play, Pause, SkipForward, SkipBack, Music } from 'lucide-react-native';
-import { Theme } from '../../../core/theme/theme';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  FadeInDown,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { Music, Pause, Play, SkipBack, SkipForward } from 'lucide-react-native';
 import { useDynamicContent } from '../../../core/hooks/useDynamicContent';
+import { useAppTheme } from '../../../core/theme/ThemeProvider';
+import { BrutalPressable, GlassCard, ScreenHeader, SectionHeader } from '../../../core/components/ui';
+import { brutal, tints } from '../../../core/theme/palettes';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const ART_TINTS: string[] = Object.values(tints);
+
+function EqualizerBar({ color, delay }: { color: string; delay: number }) {
+  const h = useSharedValue(0.35);
+  useEffect(() => {
+    h.value = withDelay(delay, withRepeat(withSequence(withTiming(1, { duration: 300 }), withTiming(0.3, { duration: 300 })), -1, true));
+    return () => cancelAnimation(h);
+  }, [h, delay]);
+  const style = useAnimatedStyle(() => ({ height: 16 * h.value }));
+  return <Animated.View style={[styles.eqBar, { backgroundColor: color }, style]} />;
+}
+
+/** Bouncing bars for the now-playing track. */
+function Equalizer({ color }: { color: string }) {
+  return (
+    <View style={styles.eq}>
+      <EqualizerBar color={color} delay={0} />
+      <EqualizerBar color={color} delay={120} />
+      <EqualizerBar color={color} delay={240} />
+      <EqualizerBar color={color} delay={60} />
+    </View>
+  );
+}
+
+/** Spinning vinyl-style disc that turns while audio plays. */
+function Disc({ spinning }: { spinning: boolean }) {
+  const { colors } = useAppTheme();
+  const rot = useSharedValue(0);
+  useEffect(() => {
+    if (spinning) {
+      rot.value = withRepeat(withTiming(rot.value + 360, { duration: 9000, easing: Easing.linear }), -1, false);
+    } else {
+      cancelAnimation(rot);
+    }
+  }, [spinning, rot]);
+  const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
+  return (
+    <Animated.View style={[styles.disc, { backgroundColor: colors.surfaceAlt, borderColor: colors.ink }, style]}>
+      <View style={[styles.discRing, { borderColor: colors.ink }]} />
+      <View style={[styles.discCenter, { backgroundColor: colors.accent, borderColor: colors.ink }]}>
+        <Music color={colors.ink} size={28} strokeWidth={2.4} />
+      </View>
+    </Animated.View>
+  );
+}
 
 export function NaatsScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
   const { content } = useDynamicContent();
-  
+
   const [naats, setNaats] = useState<any[]>(content.naats || []);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const webViewRef = useRef<WebView<{}>>(null);
-  
+
   const activeTrack = naats[currentTrackIndex] || { title: 'Naat', artist: '', url: '' };
 
   // Sync with local/cached data initially
@@ -70,11 +130,11 @@ export function NaatsScreen() {
     }
     return null;
   };
-  
+
   const injectPlayerCmd = (cmd: string) => {
     webViewRef.current?.injectJavaScript(`document.getElementById("naat-player").${cmd}();`);
   };
-  
+
   const handlePlayPause = () => {
     if (isPlaying) {
       injectPlayerCmd('pause');
@@ -86,7 +146,7 @@ export function NaatsScreen() {
       setIsPlaying(true);
     }
   };
-  
+
   const handleNext = () => {
     if (naats.length === 0) return;
     setBuffering(true);
@@ -94,7 +154,7 @@ export function NaatsScreen() {
     setCurrentTrackIndex(nextIdx);
     setIsPlaying(true);
   };
-  
+
   const handlePrev = () => {
     if (naats.length === 0) return;
     setBuffering(true);
@@ -102,13 +162,13 @@ export function NaatsScreen() {
     setCurrentTrackIndex(prevIdx);
     setIsPlaying(true);
   };
-  
+
   const selectTrack = (index: number) => {
     setBuffering(true);
     setCurrentTrackIndex(index);
     setIsPlaying(true);
   };
-  
+
   // Trigger HTML play script when track index changes or play state changes
   useEffect(() => {
     let active = true;
@@ -119,7 +179,7 @@ export function NaatsScreen() {
 
     const playActiveTrack = async () => {
       if (!activeTrack.id && activeTrack.id !== 0) return;
-      
+
       let playUrl = activeTrack.url;
       if (!playUrl) {
         setBuffering(true);
@@ -185,17 +245,10 @@ export function NaatsScreen() {
     </html>
   `;
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft color={Theme.colors.text} size={24} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Naat & Mankabat</Text>
-        <View style={styles.placeholderWidth} />
-      </View>
+  const statusLabel = buffering && isPlaying ? 'LOADING…' : isPlaying ? 'NOW PLAYING' : 'PAUSED';
 
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Hidden Audio Player WebView */}
       <View style={styles.hiddenWebView}>
         <WebView<{}>
@@ -217,71 +270,92 @@ export function NaatsScreen() {
         />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Media Player Panel */}
-        <View style={styles.playerPanel}>
-          <View style={styles.albumArtContainer}>
-            <Music color={Theme.colors.accent} size={64} style={styles.musicIcon} />
-          </View>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <ScreenHeader title="Naat & Mankabat" subtitle="Nasheeds and naats in praise of the Prophet ﷺ" onBack={() => navigation.goBack()}>
+          {/* Media Player Panel */}
+          <Animated.View entering={FadeInDown.delay(120).duration(400)}>
+            <GlassCard style={styles.playerPanel}>
+              <View style={styles.playerTop}>
+                <Disc spinning={isPlaying && !buffering} />
+                <View style={styles.flex}>
+                  <View style={styles.statusRow}>
+                    {isPlaying && !buffering ? <Equalizer color={colors.accent} /> : null}
+                    <Text style={[styles.statusText, { color: colors.onSkyMuted }]}>{statusLabel}</Text>
+                  </View>
+                  <Text style={[styles.trackTitle, { color: colors.onSky }]} numberOfLines={2}>{activeTrack.title}</Text>
+                  <Text style={[styles.trackArtist, { color: colors.onSkyMuted }]} numberOfLines={1}>{activeTrack.artist}</Text>
+                </View>
+              </View>
 
-          <Text style={styles.trackTitle} numberOfLines={1}>{activeTrack.title}</Text>
-          <Text style={styles.trackArtist}>{activeTrack.artist}</Text>
+              {/* Controls */}
+              <View style={styles.controlsRow}>
+                <BrutalPressable onPress={handlePrev} fill={colors.surface} radius={16} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.navBtn}>
+                  <SkipBack color={colors.text} size={20} fill={colors.text} />
+                </BrutalPressable>
 
-          {/* Controls */}
-          <View style={styles.controlsRow}>
-            <TouchableOpacity onPress={handlePrev} style={styles.navBtn}>
-              <SkipBack color={Theme.colors.text} size={24} fill={Theme.colors.text} />
-            </TouchableOpacity>
+                <BrutalPressable onPress={handlePlayPause} fill={colors.accent} radius={33} style={styles.mainPlayBtn}>
+                  {buffering ? (
+                    <ActivityIndicator color={colors.ink} />
+                  ) : isPlaying ? (
+                    <Pause color={colors.ink} size={26} fill={colors.ink} />
+                  ) : (
+                    <Play color={colors.ink} size={26} fill={colors.ink} style={styles.playNudge} />
+                  )}
+                </BrutalPressable>
 
-            <TouchableOpacity onPress={handlePlayPause} style={styles.mainPlayBtn}>
-              {buffering ? (
-                <ActivityIndicator color={Theme.colors.white} />
-              ) : isPlaying ? (
-                <Pause color={Theme.colors.white} size={24} fill={Theme.colors.white} />
-              ) : (
-                <Play color={Theme.colors.white} size={24} fill={Theme.colors.white} style={{ marginLeft: 3 }} />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleNext} style={styles.navBtn}>
-              <SkipForward color={Theme.colors.text} size={24} fill={Theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-        </View>
+                <BrutalPressable onPress={handleNext} fill={colors.surface} radius={16} offset={brutal.shadowSmall} borderWidth={brutal.borderThin} style={styles.navBtn}>
+                  <SkipForward color={colors.text} size={20} fill={colors.text} />
+                </BrutalPressable>
+              </View>
+            </GlassCard>
+          </Animated.View>
+        </ScreenHeader>
 
         {/* Playlist Tracks List */}
         <View style={styles.playlistSection}>
-          <Text style={styles.sectionHeader}>Playlist Tracks</Text>
-          
-          <View style={styles.listBorder}>
-            {naats.map((track, idx) => {
-              const isSelected = idx === currentTrackIndex;
-              return (
-                <TouchableOpacity
-                  key={track.id}
-                  style={[styles.trackRow, isSelected ? styles.activeRow : null]}
+          <SectionHeader title={`Playlist · ${naats.length}`} />
+
+          {naats.map((track, idx) => {
+            const isSelected = idx === currentTrackIndex;
+            const tint = ART_TINTS[idx % ART_TINTS.length];
+            return (
+              <Animated.View key={track.id} entering={FadeInDown.delay(Math.min(idx * 40, 400))}>
+                <BrutalPressable
                   onPress={() => selectTrack(idx)}
+                  radius={20}
+                  offset={isSelected ? brutal.shadow : brutal.shadowSmall}
+                  fill={isSelected ? colors.primarySoft : colors.surface}
+                  style={styles.trackRow}
                 >
-                  <View style={styles.trackRowLeft}>
-                    <Text style={[styles.trackNum, isSelected ? styles.activeText : null]}>
-                      {idx + 1}
-                    </Text>
-                    <View>
-                      <Text style={[styles.rowTitle, isSelected ? styles.activeText : null]} numberOfLines={1}>
-                        {track.title}
-                      </Text>
-                      <Text style={styles.rowArtist}>{track.artist}</Text>
-                    </View>
+                  <View style={[styles.trackArt, { backgroundColor: isSelected ? colors.primary : tint, borderColor: colors.ink }]}>
+                    {isSelected && isPlaying && !buffering ? (
+                      <Equalizer color={colors.onPrimary} />
+                    ) : isSelected && isPlaying && buffering ? (
+                      <ActivityIndicator size="small" color={colors.onPrimary} />
+                    ) : (
+                      <Text style={[styles.trackNum, { color: colors.ink }]}>{idx + 1}</Text>
+                    )}
                   </View>
-                  {isSelected && isPlaying ? (
-                    <ActivityIndicator size="small" color={Theme.colors.primary} />
-                  ) : (
-                    <Play color={Theme.colors.textMuted} size={16} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                  <View style={styles.flex}>
+                    <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
+                      {track.title}
+                    </Text>
+                    <Text style={[styles.rowArtist, { color: colors.textSecondary }]} numberOfLines={1}>{track.artist}</Text>
+                  </View>
+                  <View style={[styles.rowPlay, { backgroundColor: isSelected ? colors.primary : colors.surfaceAlt, borderColor: colors.ink }]}>
+                    {isSelected && isPlaying ? (
+                      <Pause color={colors.onPrimary} size={14} fill={colors.onPrimary} />
+                    ) : (
+                      <Play color={isSelected ? colors.onPrimary : colors.text} size={14} fill={isSelected ? colors.onPrimary : colors.text} style={styles.playNudgeSm} />
+                    )}
+                  </View>
+                </BrutalPressable>
+              </Animated.View>
+            );
+          })}
         </View>
       </ScrollView>
     </View>
@@ -289,148 +363,37 @@ export function NaatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  header: {
-    flexDirection: 'row',
+  container: { flex: 1 },
+  flex: { flex: 1 },
+  playerPanel: { marginTop: 18, padding: 16 },
+  playerTop: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  disc: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: brutal.border,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.colors.border,
-    backgroundColor: Theme.colors.surface,
-  },
-  backBtn: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Theme.colors.text,
-  },
-  placeholderWidth: {
-    width: 40,
-  },
-  scrollContent: {
-    paddingBottom: 40,
-  },
-  playerPanel: {
-    alignItems: 'center',
-    backgroundColor: Theme.colors.surface,
-    margin: 20,
-    padding: 24,
-    borderRadius: Theme.radius.lg,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-  },
-  albumArtContainer: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: Theme.colors.background,
-    borderColor: Theme.colors.border,
-    borderWidth: 2,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
   },
-  musicIcon: {},
-  trackTitle: {
-    color: Theme.colors.text,
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 6,
-    width: '100%',
-  },
-  trackArtist: {
-    color: Theme.colors.accent,
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 24,
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 32,
-  },
-  navBtn: {
-    padding: 10,
-  },
-  mainPlayBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Theme.colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  playlistSection: {
-    paddingHorizontal: 20,
-  },
-  sectionHeader: {
-    color: Theme.colors.text,
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 12,
-  },
-  listBorder: {
-    backgroundColor: Theme.colors.surface,
-    borderColor: Theme.colors.border,
-    borderWidth: 1,
-    borderRadius: Theme.radius.md,
-  },
-  trackRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(35, 68, 50, 0.2)',
-  },
-  activeRow: {
-    backgroundColor: 'rgba(16, 185, 129, 0.04)',
-  },
-  trackRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    flex: 1,
-  },
-  trackNum: {
-    color: Theme.colors.textMuted,
-    fontSize: 14,
-    fontWeight: 'bold',
-    width: 20,
-  },
-  rowTitle: {
-    color: Theme.colors.text,
-    fontSize: 14,
-    fontWeight: 'bold',
-    width: SCREEN_WIDTH - 150,
-  },
-  rowArtist: {
-    color: Theme.colors.textSecondary,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  activeText: {
-    color: Theme.colors.primary,
-  },
-  hiddenWebView: {
-    width: 0,
-    height: 0,
-    position: 'absolute',
-    opacity: 0,
-  },
+  discRing: { position: 'absolute', width: 72, height: 72, borderRadius: 36, borderWidth: 1.5, borderStyle: 'dashed' },
+  discCenter: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  statusText: { fontSize: 11, fontWeight: '900', letterSpacing: 1.6 },
+  trackTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.2, lineHeight: 23 },
+  trackArtist: { fontSize: 13.5, fontWeight: '600', marginTop: 3 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 28, marginTop: 18 },
+  navBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  mainPlayBtn: { width: 66, height: 66, justifyContent: 'center', alignItems: 'center' },
+  playNudge: { marginLeft: 3 },
+  playNudgeSm: { marginLeft: 2 },
+  playlistSection: { paddingHorizontal: 18 },
+  trackRow: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, marginBottom: 14, marginRight: brutal.shadow },
+  trackArt: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  trackNum: { fontSize: 16, fontWeight: '900' },
+  rowTitle: { fontSize: 15, fontWeight: '900' },
+  rowArtist: { fontSize: 12.5, fontWeight: '500', marginTop: 2 },
+  rowPlay: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: brutal.borderThin },
+  eq: { flexDirection: 'row', alignItems: 'flex-end', gap: 2.5, height: 16 },
+  eqBar: { width: 3, borderRadius: 2 },
+  hiddenWebView: { width: 0, height: 0, position: 'absolute', opacity: 0 },
 });

@@ -1,646 +1,193 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert } from 'react-native';
-import { Coordinates, CalculationMethod, PrayerTimes, Prayer, Madhab } from 'adhan';
-import { ChevronLeft, ChevronDown, Bell } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, FadeInRight, LinearTransition } from 'react-native-reanimated';
+import { Bell, BellOff, Check, ChevronLeft, CloudSun, Compass, MapPin, Moon, Sun, Sunrise, Sunset } from 'lucide-react-native';
 import { useLocation } from '../../../core/hooks/useLocation';
 import { useScreenTime } from '../../../core/hooks/useScreenTime';
+import { useAppTheme } from '../../../core/theme/ThemeProvider';
+import { BrutalBox, BrutalPressable, GlassCard, HeaderButton, PressableScale, SkyBackground, haptic, outline } from '../../../core/components/ui';
+import { brutal } from '../../../core/theme/palettes';
 import { calculateQiblaDirection } from '../../../core/utils/QiblaCalculator';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../../core/navigation/RootNavigator';
-import Svg, { Circle, Path, G, Text as SvgText } from 'react-native-svg';
+import { formatHijri, toHijri } from '../../../core/utils/hijri';
+import { PrayerName, ReminderName, formatTime, getNextPrayer, getPrayerTimes, localDateKey, timeFor } from '../../../core/prayer/prayerTimes';
+import { EMPTY_PRAYER_LOG, PrayerLog, getPrayerLog, logPrayer } from '../../../core/services/progress';
+import { DEFAULT_REMINDERS, ReminderSettings, loadReminderSettings, saveReminderSettings } from '../../../core/notifications/prayerNotifications';
+
+const ROWS: { name: ReminderName; Icon: typeof Sun }[] = [
+  { name: 'Fajr', Icon: Sunrise },
+  { name: 'Sunrise', Icon: Sun },
+  { name: 'Dhuhr', Icon: Sun },
+  { name: 'Asr', Icon: CloudSun },
+  { name: 'Maghrib', Icon: Sunset },
+  { name: 'Isha', Icon: Moon },
+];
 
 export function PrayerTimesScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   useScreenTime('PrayerTimesDetail');
-  const { latitude, longitude, loading: locationLoading } = useLocation();
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const { latitude, longitude, isUsingFallback } = useLocation();
 
-  const [prayerTimes, setPrayerTimes] = useState<any>(null);
-  const [selectedDateIndex, setSelectedDateIndex] = useState(1); // 19 Sat selected by default (matches Sat in mock index)
-  const [nextPrayerName, setNextPrayerName] = useState('Asr');
-  const [qiblaAngle, setQiblaAngle] = useState(287); // Default NW 287
-  const [completedCount, setCompletedCount] = useState(1); // 1/5 Completed by default
+  const [offset, setOffset] = useState(0); // days from today
+  const [log, setLog] = useState<PrayerLog>(EMPTY_PRAYER_LOG);
+  const [reminders, setReminders] = useState<ReminderSettings>(DEFAULT_REMINDERS);
 
-  const [prayersChecklist, setPrayersChecklist] = useState<Record<string, boolean>>({
-    Fajr: false,
-    Dhuhr: false,
-    Asr: false,
-    Maghrib: false,
-    Isha: false,
-  });
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i - 1); // yesterday … +5
+    return d;
+  }), []);
+  const date = days[offset + 1];
+  const isToday = offset === 0;
 
-  const dates = [
-    { day: '18', label: 'Fri' },
-    { day: '19', label: 'Sat' },
-    { day: '20', label: 'Sun' },
-    { day: '21', label: 'Mon' },
-    { day: '22', label: 'Tue' },
-    { day: '23', label: 'Wed' },
-    { day: '24', label: 'Thu' },
-  ];
+  const times = useMemo(() => getPrayerTimes(latitude, longitude, date), [latitude, longitude, date]);
+  const next = useMemo(() => getNextPrayer(latitude, longitude), [latitude, longitude]);
+  const qibla = Math.round(calculateQiblaDirection(latitude, longitude));
 
-  // Load progress
+  useFocusEffect(useCallback(() => { loadReminderSettings().then(setReminders); }, []));
   useEffect(() => {
-    const loadProgress = async () => {
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const savedChecklist = await AsyncStorage.getItem(`prayer_checklist_${todayStr}`);
-        if (savedChecklist) {
-          const checklist = JSON.parse(savedChecklist);
-          setPrayersChecklist(checklist);
-          const count = Object.values(checklist).filter(Boolean).length;
-          setCompletedCount(count);
-        }
-      } catch (e) {
-        console.warn('Failed to load prayer progress on PrayerTimesScreen:', e);
-      }
-    };
-    loadProgress();
-  }, []);
+    if (offset <= 0) getPrayerLog(localDateKey(date)).then(setLog);
+    else setLog(EMPTY_PRAYER_LOG);
+  }, [offset, date]);
 
-  const togglePrayer = async (prayerName: string) => {
-    if (selectedDateIndex !== 1) {
-      Alert.alert('Cannot Log', 'You can only log prayers for today.');
-      return;
-    }
-
-    if (prayersChecklist[prayerName]) {
-      Alert.alert('Already Logged', 'You have already logged this prayer for today.');
-      return;
-    }
-
-    if (prayerTimes) {
-      let prayerTime: Date | null = null;
-      if (prayerName === 'Fajr') prayerTime = prayerTimes.fajr;
-      if (prayerName === 'Dhuhr') prayerTime = prayerTimes.dhuhr;
-      if (prayerName === 'Asr') prayerTime = prayerTimes.asr;
-      if (prayerName === 'Maghrib') prayerTime = prayerTimes.maghrib;
-      if (prayerName === 'Isha') prayerTime = prayerTimes.isha;
-
-      if (prayerTime && new Date() < prayerTime) {
-        Alert.alert('Time Not Arrived', `You cannot log ${prayerName} yet. The prayer time starts at ${formatTime(prayerTime)}.`);
-        return;
-      }
-    }
-
-    const updatedChecklist = {
-      ...prayersChecklist,
-      [prayerName]: true,
-    };
-
-    setPrayersChecklist(updatedChecklist);
-
-    const count = Object.values(updatedChecklist).filter(Boolean).length;
-    setCompletedCount(count);
-
-    try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      await AsyncStorage.setItem(`prayer_checklist_${todayStr}`, JSON.stringify(updatedChecklist));
-
-      // Re-calculate XP (+10 XP per logged prayer)
-      const storedXp = await AsyncStorage.getItem('user_xp');
-      let currentXp = storedXp ? parseInt(storedXp, 10) : 1450;
-      const newXp = currentXp + 10;
-      await AsyncStorage.setItem('user_xp', newXp.toString());
-    } catch (e) {
-      console.warn('Failed to update prayer log:', e);
-    }
+  const toggleReminder = async (name: ReminderName) => {
+    haptic.select();
+    const updated = { ...reminders, [name]: !reminders[name] };
+    setReminders(updated);
+    await saveReminderSettings(updated);
   };
 
-  // Calculate prayer times
-  useEffect(() => {
-    if (locationLoading) return;
-    const coords = new Coordinates(latitude, longitude);
-    const params = CalculationMethod.Karachi();
-    params.madhab = Madhab.Shafi;
-    const times = new PrayerTimes(coords, new Date(), params);
-    setPrayerTimes(times);
-
-    // Calculate Qibla Direction
-    const angle = calculateQiblaDirection(latitude, longitude);
-    setQiblaAngle(Math.round(angle));
-
-    // Next prayer calculation
-    const now = new Date();
-    const next = times.nextPrayer(now);
-    const prayerNamesMap: Record<any, string> = {
-      [Prayer.Fajr]: 'Fajr',
-      [Prayer.Sunrise]: 'Sunrise',
-      [Prayer.Dhuhr]: 'Dhuhr',
-      [Prayer.Asr]: 'Asr',
-      [Prayer.Maghrib]: 'Maghrib',
-      [Prayer.Isha]: 'Isha',
-    };
-    if (next !== Prayer.None) {
-      setNextPrayerName(prayerNamesMap[next] || 'Asr');
+  const markPrayed = async (name: PrayerName) => {
+    if (!isToday || log[name]) return;
+    const at = timeFor(times, name);
+    if (new Date() < at) {
+      Alert.alert('Not yet', `${name} begins at ${formatTime(at)}.`);
+      return;
     }
-  }, [latitude, longitude, locationLoading]);
-
-  const formatTime = (timeVal: Date | null) => {
-    if (!timeVal) return '--:--';
-    return timeVal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    haptic.success();
+    setLog({ ...log, [name]: true });
+    setLog(await logPrayer(name, log));
   };
 
   return (
-    <View style={styles.container}>
-      {/* 1. Header with custom background mosque silhouette */}
-      <View style={styles.headerContainer}>
-        {/* Soft yellow/green background glow */}
-        <View style={styles.headerBgGlow} />
-        
-        <Image
-          source={require('../../../assets/images/next_prayer_mosque.png')}
-          style={styles.headerMosqueImage}
-          resizeMode="contain"
-        />
-
-        <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <ChevronLeft color="#0F172A" size={24} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleBox}>
-            <Text style={styles.headerTitle}>Prayer Times</Text>
-            <TouchableOpacity style={styles.locationSelector} activeOpacity={0.7}>
-              <Text style={styles.locationText}>Mumbai, India</Text>
-              <ChevronDown color="#64748B" size={14} style={{ marginLeft: 2 }} />
-            </TouchableOpacity>
-          </View>
-          <View style={{ width: 40 }} />
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <SkyBackground height={330} horizon={1} style={[styles.hero, { paddingTop: insets.top + 8, borderColor: colors.ink }]}>
+        <View style={styles.topRow}>
+          <HeaderButton onPress={() => navigation.goBack()}>
+            <ChevronLeft color={colors.onSky} size={22} strokeWidth={2.6} />
+          </HeaderButton>
+          <Text style={[styles.title, { color: colors.onSky }]}>Prayer Times</Text>
+          <View style={styles.iconBtn} />
         </View>
-      </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 2. Horizontal Date Selector */}
-        <View style={styles.dateSelectorContainer}>
-          {dates.map((item, index) => {
-            const isSelected = index === selectedDateIndex;
+        <Text style={[styles.hijri, { color: colors.onSkyMuted }]}>{formatHijri(toHijri(date))}</Text>
+        <Text style={[styles.gregorian, { color: colors.onSky }]}>
+          {date.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}
+        </Text>
+
+        <View style={styles.metaRow}>
+          <GlassCard style={styles.metaPill}>
+            <MapPin color={colors.onSky} size={14} />
+            <Text style={[styles.metaText, { color: colors.onSky }]}>{isUsingFallback ? 'Default location' : 'Your location'}</Text>
+          </GlassCard>
+          <GlassCard style={styles.metaPill}>
+            <Compass color={colors.onSky} size={14} />
+            <Text style={[styles.metaText, { color: colors.onSky }]}>Qibla {qibla}°</Text>
+          </GlassCard>
+        </View>
+      </SkyBackground>
+
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.days}>
+          {days.map((d, i) => {
+            const active = i - 1 === offset;
             return (
-              <TouchableOpacity
-                key={item.day}
-                style={[
-                  styles.datePill,
-                  isSelected ? styles.datePillActive : styles.datePillInactive
-                ]}
-                onPress={() => setSelectedDateIndex(index)}
-                activeOpacity={0.7}
-              >
-                <Text style={[
-                  styles.dateDayText,
-                  isSelected ? styles.dateDayTextActive : styles.dateDayTextInactive
-                ]}>
-                  {item.day}
-                </Text>
-                <Text style={[
-                  styles.dateLabelText,
-                  isSelected ? styles.dateLabelTextActive : styles.dateLabelTextInactive
-                ]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
+              <Animated.View key={d.toDateString()} entering={FadeInRight.delay(i * 40)}>
+                <BrutalPressable
+                  onPress={() => { haptic.select(); setOffset(i - 1); }}
+                  hapticOnPress={false}
+                  fill={active ? colors.primary : colors.surface}
+                  radius={18}
+                  offset={active ? brutal.shadow : brutal.shadowSmall}
+                  borderWidth={brutal.borderThin}
+                  style={styles.day}
+                >
+                  <Text style={[styles.dayLabel, { color: active ? colors.onPrimary : colors.textMuted }]}>
+                    {i === 1 ? 'Today' : d.toLocaleDateString([], { weekday: 'short' })}
+                  </Text>
+                  <Text style={[styles.dayNum, { color: active ? colors.onPrimary : colors.text }]}>{d.getDate()}</Text>
+                </BrutalPressable>
+              </Animated.View>
             );
           })}
-        </View>
+        </ScrollView>
 
-        {/* 3. Prayer Times List */}
-        {locationLoading ? (
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#0E9F6E" />
-            <Text style={styles.loaderText}>Calculating Prayer Times...</Text>
-          </View>
-        ) : prayerTimes ? (
-          <View style={styles.prayerListContainer}>
-            {[
-              { name: 'Fajr', time: prayerTimes.fajr },
-              { name: 'Dhuhr', time: prayerTimes.dhuhr },
-              { name: 'Asr', time: prayerTimes.asr },
-              { name: 'Maghrib', time: prayerTimes.maghrib },
-              { name: 'Isha', time: prayerTimes.isha },
-            ].map((item) => {
-              const isNext = nextPrayerName === item.name;
-              const isCompleted = prayersChecklist[item.name];
-              return (
-                <TouchableOpacity
-                  key={item.name}
-                  style={[
-                    styles.prayerItemRow,
-                    isNext ? styles.prayerItemRowActive : styles.prayerItemRowInactive,
-                    isCompleted && { borderColor: '#0E9F6E', backgroundColor: '#E6F4EA' }
-                  ]}
-                  onPress={() => togglePrayer(item.name)}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.prayerItemLeft}>
-                    {/* Circle Checkbox */}
-                    <View style={[
-                      styles.checkboxCircle,
-                      isCompleted && styles.checkboxCircleChecked,
-                      isNext && !isCompleted && { borderColor: '#FFFFFF' }
-                    ]}>
-                      {isCompleted && <Text style={styles.checkboxCheckmark}>✓</Text>}
-                    </View>
-
-                    <Text style={[
-                      styles.prayerNameText,
-                      isNext ? styles.prayerNameTextActive : styles.prayerNameTextInactive,
-                      isCompleted && { color: '#046C4E', fontWeight: 'bold' }
-                    ]}>
-                      {item.name}
-                    </Text>
-                    {isNext && (
-                      <View style={styles.nextBadge}>
-                        <Text style={styles.nextBadgeText}>Next Prayer</Text>
-                      </View>
-                    )}
+        <View style={{ paddingHorizontal: 18 }}>
+          {ROWS.map(({ name, Icon }, i) => {
+            const at = timeFor(times, name);
+            const isPrayer = name !== 'Sunrise';
+            const done = isPrayer && log[name as PrayerName];
+            const highlighted = isToday && !next.isTomorrow && next.name === name;
+            return (
+              <Animated.View key={name} entering={FadeInDown.delay(80 + i * 50)} layout={LinearTransition}>
+                <BrutalBox fill={highlighted ? colors.accentSoft : colors.surface} offset={highlighted ? brutal.shadow : brutal.shadowSmall} style={styles.row}>
+                  <View style={[styles.rowIcon, outline(colors), { backgroundColor: highlighted ? colors.accent : colors.surfaceAlt }]}>
+                    <Icon color={highlighted ? colors.ink : colors.text} size={20} strokeWidth={2.4} />
                   </View>
-                  <View style={styles.prayerItemRight}>
-                    <Text style={[
-                      styles.prayerTimeText,
-                      isNext ? styles.prayerTimeTextActive : styles.prayerTimeTextInactive,
-                      isCompleted && { color: '#046C4E' }
-                    ]}>
-                      {formatTime(item.time)}
-                    </Text>
-                    <TouchableOpacity 
-                      style={styles.bellButton} 
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        Alert.alert('Reminder Configured', `You will receive a notification 10 minutes before ${item.name} Jamat.`);
-                      }}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.rowName, { color: colors.text }]}>{name}</Text>
+                    {highlighted && <Text style={[styles.rowSub, { color: colors.text }]}>UP NEXT</Text>}
+                  </View>
+                  <Text style={[styles.rowTime, { color: colors.text }]}>{formatTime(at)}</Text>
+
+                  <PressableScale onPress={() => toggleReminder(name)} hapticOnPress={false} hitSlop={8} style={styles.rowAction}>
+                    {reminders[name] ? <Bell color={colors.text} fill={colors.accent} size={20} /> : <BellOff color={colors.textMuted} size={20} />}
+                  </PressableScale>
+
+                  {isPrayer && offset <= 0 && (
+                    <PressableScale
+                      onPress={() => markPrayed(name as PrayerName)}
+                      style={[styles.check, { backgroundColor: done ? colors.primary : colors.surface, borderColor: colors.ink }]}
                     >
-                      <Bell color={isNext ? '#FFFFFF' : isCompleted ? '#0E9F6E' : '#0E9F6E'} size={18} fill={isNext ? '#FFFFFF' : 'none'} />
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {/* 4. Qibla Direction Card */}
-        <View style={styles.qiblaCard}>
-          <View style={styles.qiblaLeft}>
-            <Text style={styles.qiblaTitle}>Qibla Direction</Text>
-            <Text style={styles.qiblaValue}>{qiblaAngle}° NW</Text>
-            <TouchableOpacity 
-              style={styles.viewOnMapButton} 
-              activeOpacity={0.8}
-              onPress={() => navigation.navigate('Qibla')}
-            >
-              <Text style={styles.viewOnMapButtonText}>View on Map</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.compassContainer}>
-            {/* Visual SVG Compass aligned NW */}
-            <Svg width={90} height={90} viewBox="0 0 100 100">
-              <Circle cx="50" cy="50" r="45" stroke="#E2E8F0" strokeWidth="2" fill="#F8FAFC" />
-              {/* Outer compass ring detail */}
-              <Circle cx="50" cy="50" r="38" stroke="#E2E8F0" strokeWidth="1" strokeDasharray="2" fill="none" />
-              {/* Needle pointing NW */}
-              <G transform={`rotate(${qiblaAngle}, 50, 50)`}>
-                {/* Pointer tip */}
-                <Path d="M50,15 L56,45 L44,45 Z" fill="#0E9F6E" />
-                <Path d="M50,85 L56,55 L44,55 Z" fill="#94A3B8" />
-                <Circle cx="50" cy="50" r="4" fill="#0F172A" />
-              </G>
-              {/* Compass letters */}
-              <SvgText x="50" y="24" fill="#EF4444" fontSize="8" fontWeight="bold" textAnchor="middle">N</SvgText>
-            </Svg>
-          </View>
+                      {done && <Check color={colors.onPrimary} size={16} strokeWidth={3} />}
+                    </PressableScale>
+                  )}
+                </BrutalBox>
+              </Animated.View>
+            );
+          })}
+          <Text style={[styles.footnote, { color: colors.textMuted }]}>
+            Tap the bell to toggle Adhan notifications. Times use the Karachi method (Shafi Asr).
+          </Text>
         </View>
-
-        {/* 5. Today's Progress Card */}
-        <View style={styles.progressCard}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressTitle}>Today's Progress</Text>
-            <Text style={styles.progressCount}>{completedCount}/5</Text>
-          </View>
-          
-          {/* Segmented Progress Bar */}
-          <View style={styles.segmentedProgressBar}>
-            {[1, 2, 3, 4, 5].map((val) => (
-              <View
-                key={val}
-                style={[
-                  styles.progressSegment,
-                  val <= completedCount ? styles.progressSegmentActive : styles.progressSegmentInactive
-                ]}
-              />
-            ))}
-          </View>
-          <Text style={styles.progressTip}>Complete all prayers to earn more XP ✨</Text>
-        </View>
-        
-        <View style={{ height: 110 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  headerContainer: {
-    height: 190,
-    position: 'relative',
-    justifyContent: 'flex-end',
-    paddingBottom: 15,
-  },
-  headerBgGlow: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: '#FFFBEB', // soft warm gold/sun glow
-    opacity: 0.85,
-  },
-  headerMosqueImage: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 260,
-    height: 160,
-    opacity: 0.75,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    zIndex: 1,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-  },
-  headerTitleBox: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#0F172A',
-  },
-  locationSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  locationText: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  dateSelectorContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  datePill: {
-    width: '12.5%',
-    alignItems: 'center',
-    borderRadius: 14,
-    paddingVertical: 10,
-  },
-  datePillActive: {
-    backgroundColor: '#0E9F6E',
-  },
-  datePillInactive: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#F1F5F9',
-    borderWidth: 1,
-  },
-  dateDayText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  dateDayTextActive: {
-    color: '#FFFFFF',
-  },
-  dateDayTextInactive: {
-    color: '#0F172A',
-  },
-  dateLabelText: {
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  dateLabelTextActive: {
-    color: '#FFFFFF',
-  },
-  dateLabelTextInactive: {
-    color: '#94A3B8',
-  },
-  loaderContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-    gap: 8,
-  },
-  loaderText: {
-    color: '#64748B',
-    fontSize: 14,
-  },
-  prayerListContainer: {
-    marginBottom: 24,
-    gap: 12,
-  },
-  prayerItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 20,
-  },
-  prayerItemRowActive: {
-    backgroundColor: '#0E9F6E',
-  },
-  prayerItemRowInactive: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#F1F5F9',
-    borderWidth: 1,
-  },
-  prayerItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  prayerNameText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  prayerNameTextActive: {
-    color: '#FFFFFF',
-  },
-  prayerNameTextInactive: {
-    color: '#0F172A',
-  },
-  nextBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  nextBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  prayerItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  prayerTimeText: {
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  prayerTimeTextActive: {
-    color: '#FFFFFF',
-  },
-  prayerTimeTextInactive: {
-    color: '#0F172A',
-  },
-  bellButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: '#94A3B8',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  checkboxCircleChecked: {
-    borderColor: '#0E9F6E',
-    backgroundColor: '#0E9F6E',
-  },
-  checkboxCheckmark: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  qiblaCard: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#F1F5F9',
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.02,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  qiblaLeft: {
-    flex: 1,
-  },
-  qiblaTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#0F172A',
-  },
-  qiblaValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#0F172A',
-    marginTop: 4,
-  },
-  viewOnMapButton: {
-    borderColor: '#E2E8F0',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginTop: 12,
-    alignSelf: 'flex-start',
-  },
-  viewOnMapButtonText: {
-    color: '#64748B',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  compassContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  progressCard: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#F1F5F9',
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 16,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.02,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  progressTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#0F172A',
-  },
-  progressCount: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#0E9F6E',
-  },
-  segmentedProgressBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    gap: 6,
-  },
-  progressSegment: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-  },
-  progressSegmentActive: {
-    backgroundColor: '#0E9F6E',
-  },
-  progressSegmentInactive: {
-    backgroundColor: '#F1F5F9',
-  },
-  progressTip: {
-    fontSize: 11,
-    color: '#94A3B8',
-    fontWeight: '600',
-    textAlign: 'center',
-    marginTop: 4,
-  },
+  hero: { paddingHorizontal: 20, paddingBottom: 64, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, borderBottomWidth: brutal.border },
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  iconBtn: { width: 42, height: 42 },
+  title: { fontSize: 20, fontWeight: '900' },
+  hijri: { fontSize: 13, fontWeight: '700', marginTop: 22, letterSpacing: 0.3 },
+  gregorian: { fontSize: 28, fontWeight: '900', marginTop: 4, letterSpacing: -0.3 },
+  metaRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  metaPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12 },
+  metaText: { fontSize: 13, fontWeight: '800' },
+  days: { paddingHorizontal: 18, paddingVertical: 18, gap: 10 },
+  day: { width: 58, height: 72, alignItems: 'center', justifyContent: 'center' },
+  dayLabel: { fontSize: 12, fontWeight: '800' },
+  dayNum: { fontSize: 20, fontWeight: '900', marginTop: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, paddingVertical: 14, paddingHorizontal: 16 },
+  rowIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  rowName: { fontSize: 16, fontWeight: '900' },
+  rowSub: { fontSize: 11, fontWeight: '900', marginTop: 1, letterSpacing: 0.8 },
+  rowTime: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  rowAction: { padding: 4 },
+  check: { width: 28, height: 28, borderRadius: 9, borderWidth: brutal.borderThin, alignItems: 'center', justifyContent: 'center' },
+  footnote: { fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 18 },
 });

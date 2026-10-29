@@ -1,0 +1,5 @@
+<resources>
+    <color name="splash_background">#F3EEE4</color>
+    <!-- Ink-black system nav bar: keeps the white nav buttons visible on the cream theme -->
+    <color name="nav_bar">#1C1A17</color>
+</resources>
