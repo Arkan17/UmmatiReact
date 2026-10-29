@@ -1,3 +1,15 @@
+# 🌙 Ummati (امّتي)
+
+> A modern, comprehensive, offline-first Islamic companion app built with React Native.
+
+### 📥 Download Android App (Direct APK)
+[![Download APK](https://img.shields.io/badge/Download-Android%20APK-0D9488?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Arkan17/UmmatiReact/releases/latest/download/Ummati.apk)
+
+**Direct Download Link for users:**
+👉 `https://github.com/Arkan17/UmmatiReact/releases/latest/download/Ummati.apk`
+
+---
+
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
 # Getting Started
